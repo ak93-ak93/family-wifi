@@ -65,8 +65,10 @@ For each kid, group and device:
 
 | Entity | What it does |
 |---|---|
-| `switch.<name>_internet` | Turn **off** to pause the internet; turn **on** to restore it |
-| `switch.<name>_slow_down` | Turn **on** to limit speed (first speed preset) |
+| `switch.<name>_internet` | Turn **off** to pause the internet for the kid's *For how long* choice; turn **on** to restore it |
+| `switch.<name>_slow_down` | Turn **on** to limit speed to the kid's *Speed limit* choice (first preset until you pick one) |
+| `select.<name>_speed_limit` | Pick a speed to slow down to now (*Slow (1 Mbps)*, *Very slow (256 kbps)*, …) or *No limit* |
+| `select.<name>_for_how_long` | How long the Internet switch, Slow down switch and Speed limit apply: *15 min* … *until 7am*, *until I undo* (default). Remembered across restarts |
 | `sensor.<name>_status` | `Normal`, `Paused`, `Slowed`, `Websites blocked`; attributes list each restriction and when it ends |
 
 Plus `sensor.family_wifi_active_restrictions` (count, with a readable `summary` attribute).
@@ -106,7 +108,8 @@ It can't share Home Assistant's own switches with Apple Home. Use one of these i
 Then in the Home app, **Alex Internet** works like a light switch: off pauses, on restores. Siri works too:
 *"Hey Siri, turn off Alex Internet."*
 
-Expose only the `Internet` and `Slow down` switches. Apple Home can't show text sensors like "Top app",
+Expose only the `Internet` and `Slow down` switches. Set *For how long* and *Speed limit* in Home Assistant
+first, and the switches in Apple Home will use them. Apple Home can't show text sensors like "Top app",
 and pass-through sensors just add clutter. For timed pauses from Siri, make a Home Assistant script
 (e.g. `family_wifi.pause` with `target: Alex, duration: 1 hour`) and expose that too. HomeKit Bridge shows
 scripts as switches.

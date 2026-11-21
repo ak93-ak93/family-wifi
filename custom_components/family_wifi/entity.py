@@ -17,6 +17,7 @@ from .core.usage import Usage
 SIBLINGS = {
     "internet": "switch", "slow_down": "switch", "status": "sensor", "online": "binary_sensor",
     "data_today": "sensor", "screen_time": "sensor", "top_app": "sensor", "download_speed": "sensor",
+    "speed_limit": "select", "duration": "select",
 }
 
 

@@ -138,6 +138,14 @@
       "online": {
         "name": "Online"
       }
+    },
+    "select": {
+      "speed_limit": {
+        "name": "Speed limit"
+      },
+      "duration": {
+        "name": "For how long"
+      }
     }
   },
   "selector": {

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import httpx
@@ -40,7 +40,7 @@ from .core.unifi import UnifiClient, UnifiError
 from .core.usage import Usage, UsageTracker
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 USAGE_INTERVAL = timedelta(minutes=2)
 TICK = timedelta(seconds=15)
 
@@ -51,6 +51,15 @@ class Hub:
     svc: FamilyWifi
     usage: DataUpdateCoordinator[dict[str, Usage]]
     tracker: UsageTracker
+    # Per kid: how long switches apply for, and which speed "Slow down" uses (set by the select entities).
+    durations: dict[str, str] = field(default_factory=dict)
+    speeds: dict[str, str] = field(default_factory=dict)
+
+    def duration(self, target: str) -> str:
+        return self.durations.get(target, "until I undo")
+
+    def speed(self, target: str) -> str:
+        return self.speeds.get(target) or self.cfg.speeds[0].name
 
 
 type FamilyWifiConfigEntry = ConfigEntry[Hub]

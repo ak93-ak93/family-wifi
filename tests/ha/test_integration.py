@@ -240,3 +240,52 @@ async def test_card_is_served_and_loaded(hass, fake_unifi, hass_client):
     resp = await client.get("/family_wifi/family-wifi-card.js")
     assert resp.status == 200
     assert 'customElements.define("family-wifi-card"' in await resp.text()
+
+
+async def test_speed_limit_select(hass, fake_unifi):
+    await setup(hass)
+    sel = hass.states.get("select.sam_iphone_speed_limit")
+    assert sel.state == "No limit"
+    assert sel.attributes["options"] == ["No limit", "Slow (1 Mbps)", "Very slow (256 kbps)", "Homework (5 Mbps)"]
+
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.sam_iphone_speed_limit", "option": "Very slow (256 kbps)"}, blocking=True)
+    group = next(g for g in fake_unifi.groups if g["name"] == "FamilyWiFi Very slow (256 kbps)")
+    assert group["qos_rate_max_down"] == 256 and fake_unifi.users[C]["usergroup_id"] == group["_id"]
+    assert hass.states.get("select.sam_iphone_speed_limit").state == "Very slow (256 kbps)"
+    assert hass.states.get("switch.sam_iphone_slow_down").state == "on"
+
+    # Switch to another speed: the device keeps its original group to go back to.
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.sam_iphone_speed_limit", "option": "Homework (5 Mbps)"}, blocking=True)
+    assert hass.states.get("select.sam_iphone_speed_limit").state == "Homework (5 Mbps)"
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.sam_iphone_speed_limit", "option": "No limit"}, blocking=True)
+    assert fake_unifi.users[C]["usergroup_id"] == "g-default"
+    assert hass.states.get("switch.sam_iphone_slow_down").state == "off"
+
+    # The Slow down switch now uses the last speed picked.
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.sam_iphone_slow_down"}, blocking=True)
+    assert hass.states.get("select.sam_iphone_speed_limit").state == "Homework (5 Mbps)"
+
+
+async def test_duration_select_applies_to_switches(hass, fake_unifi):
+    entry = await setup(hass)
+    assert hass.states.get("select.alex_for_how_long").state == "until I undo"
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.alex_for_how_long", "option": "30 min"}, blocking=True)
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.alex_internet"}, blocking=True)
+    (r,) = entry.runtime_data.svc.state.find("pause")
+    left = (dt_util.parse_datetime(r.until) - dt_util.now()).total_seconds()
+    assert 29 * 60 < left <= 30 * 60
+    ends = hass.states.get("sensor.alex_status").attributes["restrictions"][0]["ends_at"]
+    assert ends == r.until
+
+
+async def test_duration_select_remembered_after_restart(hass, fake_unifi):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("select.alex_for_how_long", "1 hour")])
+    await setup(hass)
+    assert hass.states.get("select.alex_for_how_long").state == "1 hour"
