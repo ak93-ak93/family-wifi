@@ -43,8 +43,8 @@ type **Integration** → find **Family WiFi** → Download → restart Home Assi
 **Manual:** copy `custom_components/family_wifi` into your Home Assistant `config/custom_components/` folder
 and restart.
 
-Then: **Settings → Devices & services → Add integration → Family WiFi**, and enter your console address and the
-local UniFi account from [step 1](#1-prepare-unifi).
+Then: **Settings → Devices & services → Add integration → Family WiFi**, and enter your console address plus an API key
+and/or a local UniFi account (see [step 1](#1-prepare-unifi)).
 
 ### Set up kids and groups
 
@@ -111,9 +111,15 @@ with no VPN needed. Dashboard tiles for the `Internet` switches give you one-tap
 
 ## 1. Prepare UniFi
 
-1. In UniFi OS: **Admins & Users → Add Admin**: name `family-wifi`, **Restrict to local access only**,
-   role **Site Admin** for Network (or a custom role that can manage clients and traffic rules). Local accounts
-   don't need 2FA, which this app can't do.
+1. **Give the app access.** Use an **API key**, a **local account**, or both:
+   - **API key** (UniFi Network 9 or newer): **UniFi Network → Settings → Control Plane → Integrations →
+     Create API Key**. Copy it straight into `config.yaml` (or the Home Assistant setup screen). Don't paste it
+     into chats or emails.
+   - **Local account**: in UniFi OS, **Admins & Users → Add Admin**: name `family-wifi`, **Restrict to local
+     access only**, role **Site Admin** for Network. Local accounts don't need 2FA, which this app can't do.
+   - **Both (recommended):** UniFi's API keys are new, and on some versions they only work for part of the
+     API this app uses. With both set, the key is used first and the account takes over automatically if
+     UniFi refuses the key. Run the [check](#test-your-setup) to see which one your console uses.
 2. On each kid's iPhone/iPad: **Settings → Wi-Fi → (i) on your network → Private Wi-Fi Address: Off**
    (or set it to *Fixed*). Otherwise the device's MAC address changes and the rules stop applying to it.
 3. Write down each device's MAC address from **UniFi Network → Client Devices**.
@@ -145,6 +151,51 @@ Check it: open `http://<server-ip>:8787` on your phone, paste your `api_token`, 
 simple control page. Add it to your Home Screen with **Share → Add to Home Screen** for an app-like icon.
 
 > 💡 Give the server a fixed IP (UniFi: Client Devices → the server → Settings → Fixed IP Address).
+
+## Test your setup
+
+After filling in `config.yaml`, run the check. It only reads from UniFi, except for one harmless test that
+blocks and unblocks a made-up device that isn't on your network:
+
+```bash
+python -m family_wifi.check
+# Docker:
+docker compose run --rm family-wifi python -m family_wifi.check
+```
+
+```
+Console: https://192.168.1.1   site: default
+Auth:    API key + username/password fallback
+
+✅ Reach the console: UniFi OS
+✅ Sign in: api key
+✅ Read clients (needed for everything): 23 online, 61 known
+✅ Read bandwidth profiles (needed for Slow down): Default
+✅ Read traffic rules (needed for Block websites): 2 rules
+✅ Permission to block devices (needed for Pause): allowed (tested with a made-up device)
+
+All good.
+```
+
+The output above is an illustration, not from a real console.
+
+Then try a real pause on one device. It pauses for 60 seconds and restores it, even if you press Ctrl-C:
+
+```bash
+python -m family_wifi.check --try-pause "Alex iPad"
+```
+
+What the results mean:
+
+- **Sign in** says *login* although you set a key: UniFi refused the key for some calls and the app switched to
+  your username/password. Everything still works.
+- **"didn't accept the API key"**: your UniFi version doesn't allow keys for that part of the API. Add a
+  username/password.
+- **"UniFi has never seen …"**: wrong MAC address, or the device uses a Private Wi-Fi Address.
+- `--show-rules` prints your existing traffic rules. If you've made a domain block in the UniFi app,
+  this shows the exact format your console uses.
+
+Home Assistant: the setup screen runs the same sign-in check. Then flip one device's **Internet** switch off and on.
 
 ## 3. Build the iPhone Shortcut (about 5 minutes, once)
 

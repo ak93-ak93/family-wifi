@@ -12,10 +12,16 @@ import yaml
 @dataclass
 class UnifiConfig:
     url: str  # e.g. https://192.168.1.1
-    username: str
-    password: str
+    username: str = ""
+    password: str = ""
     site: str = "default"
     verify_ssl: bool = False
+    # UniFi OS API key (Network 9+). Used first; username/password is the fallback.
+    api_key: str = ""
+
+    @property
+    def has_login(self) -> bool:
+        return bool(self.username and self.password)
 
 
 @dataclass
@@ -110,10 +116,13 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         password=os.environ.get("UNIFI_PASSWORD", u.get("password", "")),
         site=u.get("site", "default"),
         verify_ssl=bool(u.get("verify_ssl", False)),
+        api_key=os.environ.get("UNIFI_API_KEY", u.get("api_key", "") or ""),
     )
     token = os.environ.get("FAMILY_WIFI_TOKEN", raw.get("api_token", ""))
-    if not unifi.url or not unifi.username or not unifi.password:
-        raise ValueError("unifi.url, unifi.username and unifi.password are required")
+    if not unifi.url:
+        raise ValueError("unifi.url is required")
+    if not unifi.api_key and not unifi.has_login:
+        raise ValueError("Set unifi.api_key, or unifi.username and unifi.password (or both)")
     if not token or token == "change-me":
         raise ValueError("Set api_token in config.yaml (or FAMILY_WIFI_TOKEN) to a long random string")
     speeds = [

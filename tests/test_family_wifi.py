@@ -10,7 +10,7 @@ from family_wifi.config import Config, SpeedPreset, UnifiConfig
 from family_wifi.durations import parse_until
 from family_wifi.service import FamilyWifi
 from family_wifi.state import State
-from family_wifi.unifi import UnifiClient
+from family_wifi.unifi import UnifiClient, UnifiError
 
 TZ = ZoneInfo("America/Los_Angeles")
 from tests.fake_unifi import A, B, C, FakeUnifi
@@ -137,3 +137,56 @@ def test_home_assistant_copy_is_in_sync():
         assert (root / "family_wifi" / name).read_text() == (
             root / "custom_components/family_wifi/core" / name
         ).read_text(), f"{name} differs: run python scripts/sync_core.py"
+
+
+def _client(fake, **kw):
+    cfg = UnifiConfig(url="https://udm", **kw)
+    return UnifiClient(cfg, transport=httpx.MockTransport(fake))
+
+
+def test_api_key_only():
+    fake = FakeUnifi()
+    c = _client(fake, api_key="good-key")
+    c.block_client(A)
+    assert fake.blocked == {A} and c.auth_mode == "api_key"
+    assert not any(call[1] == "/api/auth/login" for call in fake.calls)
+
+
+def test_api_key_rejected_falls_back_to_password():
+    fake = FakeUnifi()
+    fake.key_allowed = False
+    c = _client(fake, api_key="good-key", username="u", password="p")
+    c.block_client(A)
+    assert fake.blocked == {A} and c.auth_mode == "login"
+    c.unblock_client(A)  # stays on login, no second fallback needed
+    assert sum(call[1] == "/api/auth/login" for call in fake.calls) == 1
+
+
+def test_api_key_rejected_without_password_explains():
+    fake = FakeUnifi()
+    fake.key_allowed = False
+    c = _client(fake, api_key="good-key")
+    with pytest.raises(UnifiError, match="didn't accept the API key"):
+        c.block_client(A)
+
+
+def test_check_command(tmp_path, capsys, monkeypatch):
+    from family_wifi import check, unifi
+
+    fake = FakeUnifi()
+    original = unifi.UnifiClient.__init__
+    monkeypatch.setattr(unifi.UnifiClient, "__init__",
+                        lambda self, cfg, transport=None: original(self, cfg, httpx.MockTransport(fake)))
+    monkeypatch.setattr(check.time, "sleep", lambda s: None)
+    cfgfile = tmp_path / "config.yaml"
+    cfgfile.write_text(f"""
+unifi: {{url: "https://udm", api_key: good-key}}
+api_token: t0ken
+devices: {{Alex iPad: "{A}", Old Phone: "02:11:22:33:44:55"}}
+""")
+    assert check.main(["--config", str(cfgfile), "--try-pause", "alex ipad", "--seconds", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "API key" in out and "All good" in out
+    assert "never seen: Old Phone" in out
+    assert "good-key" not in out
+    assert fake.blocked == set()  # restored after the trial pause

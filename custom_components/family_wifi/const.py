@@ -3,6 +3,7 @@
 DOMAIN = "family_wifi"
 SIGNAL_UPDATE = "family_wifi_update"
 
+CONF_API_KEY = "api_key"
 CONF_SITE = "site"
 CONF_VERIFY_SSL = "verify_ssl"
 

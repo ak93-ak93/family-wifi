@@ -28,6 +28,10 @@ class UnifiClient:
         )
         self.is_unifi_os: bool | None = None
         self._logged_in = False
+        # "api_key" or "login": how requests are currently authenticated.
+        self.auth_mode: str | None = None
+        if cfg.api_key:
+            self.http.headers["X-API-KEY"] = cfg.api_key
 
     # ---------- session ----------
 
@@ -39,8 +43,19 @@ class UnifiClient:
         self.is_unifi_os = r.status_code == 200
         log.info("UniFi OS console: %s", self.is_unifi_os)
 
+    def connect(self) -> None:
+        """Authenticate: the API key if there is one, else username/password."""
+        self._detect()
+        if self.cfg.api_key:
+            self.auth_mode = "api_key"
+            self._logged_in = True
+        else:
+            self.login()
+
     def login(self) -> None:
         self._detect()
+        if not self.cfg.has_login:
+            raise UnifiError("UniFi didn't accept the API key for this request, and no username/password is set to fall back on.")
         path = "/api/auth/login" if self.is_unifi_os else "/api/login"
         r = self.http.post(
             path,
@@ -50,6 +65,10 @@ class UnifiClient:
             raise UnifiError(f"UniFi login failed ({r.status_code}). Check username/password; use a local admin account without 2FA.")
         if token := r.headers.get("x-csrf-token"):
             self.http.headers["x-csrf-token"] = token
+        if self.auth_mode == "api_key":
+            log.warning("UniFi rejected the API key for a request; using username/password from now on")
+        self.http.headers.pop("X-API-KEY", None)
+        self.auth_mode = "login"
         self._logged_in = True
 
     def _url(self, path: str, v2: bool = False) -> str:
@@ -62,15 +81,21 @@ class UnifiClient:
 
     def request(self, method: str, path: str, json=None, v2: bool = False):
         if not self._logged_in:
-            self.login()
+            self.connect()
         for attempt in (1, 2):
             r = self.http.request(method, self._url(path, v2), json=json)
-            if r.status_code == 401 and attempt == 1:
+            # 401: session expired. 401/403 with a key: this endpoint doesn't take keys.
+            rejected = r.status_code == 401 or (r.status_code == 403 and self.auth_mode == "api_key")
+            if rejected and attempt == 1 and (self.cfg.has_login or self.auth_mode == "login"):
                 self.login()
                 continue
             break
         if token := r.headers.get("x-csrf-token"):
             self.http.headers["x-csrf-token"] = token
+        if r.status_code in (401, 403) and self.auth_mode == "api_key":
+            raise UnifiError(
+                f"UniFi didn't accept the API key for {path} (HTTP {r.status_code}). "
+                "Your UniFi version may only allow keys on some endpoints: add a username/password as a fallback.")
         if r.status_code >= 400:
             raise UnifiError(f"{method} {path} -> HTTP {r.status_code}: {r.text[:300]}")
         if not r.content:

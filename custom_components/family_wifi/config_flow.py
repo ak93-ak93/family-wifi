@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_API_KEY,
     CONF_SITE,
     CONF_VERIFY_SSL,
     DEFAULT_SITE_LISTS,
@@ -46,13 +47,15 @@ def _login(data: dict) -> list[dict]:
 
     client = UnifiClient(unifi_config(data))
     try:
-        client.login()
+        client.connect()
         return client.all_clients()
     finally:
         client.http.close()
 
 
 async def _check(hass, data: dict) -> dict[str, str]:
+    if not data.get(CONF_API_KEY) and not (data.get(CONF_USERNAME) and data.get(CONF_PASSWORD)):
+        return {"base": "need_auth"}
     try:
         await hass.async_add_executor_job(_login, data)
     except UnifiError:
@@ -68,6 +71,7 @@ class FamilyWifiConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            user_input = {k: v for k, v in user_input.items() if v not in ("", None)}
             errors = await _check(self.hass, user_input)
             if not errors:
                 return self.async_create_entry(
@@ -77,8 +81,9 @@ class FamilyWifiConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
         schema = vol.Schema({
             vol.Required(CONF_URL, default="https://192.168.1.1"): str,
-            vol.Required(CONF_USERNAME): str,
-            vol.Required(CONF_PASSWORD): PASSWORD,
+            vol.Optional(CONF_API_KEY): PASSWORD,
+            vol.Optional(CONF_USERNAME): str,
+            vol.Optional(CONF_PASSWORD): PASSWORD,
             vol.Required(CONF_SITE, default="default"): str,
             vol.Required(CONF_VERIFY_SSL, default=False): bool,
         })
@@ -91,13 +96,14 @@ class FamilyWifiConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            data = {**entry.data, **user_input}
+            data = {**entry.data, **{k: v for k, v in user_input.items() if v not in ("", None)}}
             errors = await _check(self.hass, data)
             if not errors:
                 return self.async_update_reload_and_abort(entry, data=data)
         schema = vol.Schema({
-            vol.Required(CONF_USERNAME, default=entry.data[CONF_USERNAME]): str,
-            vol.Required(CONF_PASSWORD): PASSWORD,
+            vol.Optional(CONF_API_KEY): PASSWORD,
+            vol.Optional(CONF_USERNAME, description={"suggested_value": entry.data.get(CONF_USERNAME)}): str,
+            vol.Optional(CONF_PASSWORD): PASSWORD,
         })
         return self.async_show_form(step_id="reauth_confirm", data_schema=schema, errors=errors)
 

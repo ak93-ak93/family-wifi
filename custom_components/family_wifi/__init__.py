@@ -19,6 +19,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    CONF_API_KEY,
     CONF_SITE,
     CONF_VERIFY_SSL,
     DEFAULT_SITE_LISTS,
@@ -52,10 +53,11 @@ type FamilyWifiConfigEntry = ConfigEntry[Hub]
 def unifi_config(data: dict) -> UnifiConfig:
     return UnifiConfig(
         url=data[CONF_URL].rstrip("/"),
-        username=data[CONF_USERNAME],
-        password=data[CONF_PASSWORD],
+        username=data.get(CONF_USERNAME) or "",
+        password=data.get(CONF_PASSWORD) or "",
         site=data.get(CONF_SITE, "default"),
         verify_ssl=data.get(CONF_VERIFY_SSL, False),
+        api_key=data.get(CONF_API_KEY) or "",
     )
 
 
@@ -95,7 +97,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: FamilyWifiConfigEntry) -
 
     def _connect() -> FamilyWifi:
         unifi = UnifiClient(cfg.unifi)
-        unifi.login()
+        unifi.connect()
+        unifi.online_clients()  # proves the credentials work
         return FamilyWifi(cfg, unifi, State(cfg.state_file))
 
     try:

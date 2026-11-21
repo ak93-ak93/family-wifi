@@ -142,3 +142,29 @@ async def test_bad_target(hass, fake_unifi):
 async def test_unload(hass, fake_unifi):
     entry = await setup(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_config_flow_api_key_only(hass, fake_unifi):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"url": "https://udm", "api_key": "good-key", "site": "default", "verify_ssl": False})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert "username" not in result["data"]
+    await hass.async_block_till_done()
+    assert not any(c[1] == "/api/auth/login" for c in fake_unifi.calls)
+
+
+async def test_config_flow_needs_some_auth(hass, fake_unifi):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"url": "https://udm", "site": "default", "verify_ssl": False})
+    assert result["errors"] == {"base": "need_auth"}
+
+
+async def test_bad_api_key_starts_reauth(hass, fake_unifi):
+    entry = MockConfigEntry(domain=DOMAIN, data={"url": "https://udm", "api_key": "wrong"}, options=OPTIONS)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is config_entries.ConfigEntryState.SETUP_ERROR
+    assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())

@@ -19,6 +19,8 @@ class FakeUnifi:
         self.rules = {}
         self.calls = []
         self.reject_login = False
+        self.api_key = "good-key"
+        self.key_allowed = True  # does this console accept API keys on these endpoints?
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         p, m = req.url.path, req.method
@@ -31,8 +33,17 @@ class FakeUnifi:
             if self.reject_login:
                 return httpx.Response(401, json={})
             return httpx.Response(200, json={}, headers={"x-csrf-token": "csrf"})
-        assert req.headers.get("x-csrf-token") == "csrf"
+        key = req.headers.get("x-api-key")
+        if key is not None:
+            if key != self.api_key:
+                return httpx.Response(401, json={})
+            if not self.key_allowed:
+                return httpx.Response(403, json={})
+        elif req.headers.get("x-csrf-token") != "csrf":
+            return httpx.Response(401, json={})
         base, v2 = "/proxy/network/api/s/default", "/proxy/network/v2/api/site/default"
+        if p == v2 + "/trafficrules" and m == "GET":
+            return httpx.Response(200, json=list(self.rules.values()))
         if p == base + "/cmd/stamgr":
             if body["cmd"] == "block-sta":
                 self.blocked.add(body["mac"])

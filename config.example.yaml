@@ -4,8 +4,14 @@ unifi:
   # Your UniFi console's local address. UDM / UDR / UCG / Cloud Key: https://192.168.1.1
   # Standalone Network app: https://<host>:8443
   url: https://192.168.1.1
-  # Create a LOCAL admin in UniFi OS (Admins & Users) for this app:
-  # role "Site Admin" for Network, "Restrict to local access only", no 2FA.
+  # Sign in with an API key, a local account, or both (recommended):
+  # the key is tried first and the account is the fallback, because some
+  # UniFi versions only accept keys for part of the API.
+  #
+  # API key: UniFi Network > Settings > Control Plane > Integrations > Create API Key
+  api_key: ""
+  # Local account: UniFi OS > Admins & Users > Add Admin, "Restrict to local
+  # access only", role "Site Admin" for Network, no 2FA.
   username: family-wifi
   password: "put-the-password-here"
   site: default

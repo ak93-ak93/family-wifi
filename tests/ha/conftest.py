@@ -9,7 +9,6 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from tests.fake_unifi import FakeUnifi  # noqa: E402
 
-pytest_plugins = ["pytest_homeassistant_custom_component"]
 
 
 @pytest.fixture(autouse=True)
