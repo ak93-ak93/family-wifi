@@ -34,10 +34,7 @@
     },
     "sensor": {
       "status": {
-        "default": "mdi:shield-check",
-        "state": {
-          "Normal": "mdi:shield-check-outline"
-        }
+        "default": "mdi:shield-account"
       },
       "active": {
         "default": "mdi:router-network"

@@ -42,6 +42,7 @@ from .allowance import Allowances
 from .core.usage import Usage, UsageTracker
 
 _LOGGER = logging.getLogger(__name__)
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)  # set up from the UI only
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 USAGE_INTERVAL = timedelta(minutes=2)
 SAFETY_TICK = timedelta(minutes=5)  # timers are scheduled exactly; this only catches anything missed
