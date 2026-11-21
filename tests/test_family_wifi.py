@@ -284,7 +284,7 @@ def test_release_by_reason_keeps_manual_restrictions(env):
     svc.do("sites", "Alex", "until 7am", option="Games", reason="Limit: Youtube")
     svc.do("slow", "Sam iPhone", "until 7am", reason="Limit: daily screen time")
     assert svc.release_reason("Kids", "Limit:") == ["Limit: Youtube", "Limit: daily screen time"]
-    assert fake.rules == {} and fake.users[C]["usergroup_id"] == ""
+    assert fake.rules == {} and fake.users[C]["usergroup_id"] == "g-default"
     assert fake.blocked == {A, B}
     (r,) = svc.state.find()
     assert r.kind == "pause" and r.reason == ""
