@@ -6,7 +6,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, Sen
 from homeassistant.const import UnitOfDataRate, UnitOfInformation, UnitOfTime
 from homeassistant.util import dt as dt_util
 
-from .core.service import ACTIONS
+from .core.service import ACTIONS, DURATIONS
 from .core.usage import human_bytes, human_duration
 from .entity import FamilyWifiEntity, UsageEntity
 
@@ -19,6 +19,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
     for t in targets:
         entities += [DataTodaySensor(entry, t), SpeedSensor(entry, t, "download"),
                      SpeedSensor(entry, t, "upload"), TopAppSensor(entry, t), ScreenTimeSensor(entry, t)]
+    entities += [TimeLeftSensor(entry, t) for t in entry.runtime_data.allowances.targets()]
     async_add_entities(entities)
 
 
@@ -34,7 +35,9 @@ def _describe(r) -> dict:
 class StatusSensor(FamilyWifiEntity, SensorEntity):
     """'Normal', 'Paused', 'Slowed', 'Websites blocked' (or a combination)."""
 
-    _attr_icon = "mdi:shield-account"
+    # Static/bulky data for the dashboard card: don't store it in history every time the state changes.
+    _unrecorded_attributes = frozenset({"family_wifi_target", "is_group", "devices", "entities"})
+
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "status")
@@ -48,13 +51,22 @@ class StatusSensor(FamilyWifiEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         rs = self.restrictions()
         ends = [r.until for r in rs if r.until]
-        return {"restrictions": [_describe(r) for r in rs], "next_change": min(ends) if ends else None}
+        return {
+            "restrictions": [_describe(r) for r in rs],
+            "next_change": min(ends) if ends else None,
+            # Used by the Family WiFi dashboard card to find everything for this kid.
+            "family_wifi_target": self.target,
+            "is_group": self.target in self.hub.cfg.groups,
+            "devices": self.hub.cfg.groups.get(self.target, [self.target]),
+            "entities": self.sibling_ids(),
+        }
 
 
 class ActiveSensor(FamilyWifiEntity, SensorEntity):
     """Number of active restrictions across the house, with a readable summary."""
 
-    _attr_icon = "mdi:router-network"
+    _unrecorded_attributes = frozenset({"summary", "site_lists", "speeds", "durations", "groups"})
+
     _attr_native_unit_of_measurement = "restrictions"
 
     def __init__(self, entry) -> None:
@@ -66,9 +78,15 @@ class ActiveSensor(FamilyWifiEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
+        cfg = self.hub.cfg
         return {
             "summary": self.hub.svc.status(),
             "restrictions": [_describe(r) for r in self.hub.svc.state.find()],
+            # Menus for the Family WiFi dashboard card.
+            "site_lists": list(cfg.site_lists),
+            "speeds": [s.name for s in cfg.speeds],
+            "durations": DURATIONS,
+            "groups": list(cfg.groups),
         }
 
 
@@ -80,7 +98,6 @@ class DataTodaySensor(UsageEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfInformation.BYTES
     _attr_suggested_unit_of_measurement = UnitOfInformation.MEGABYTES
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:chart-donut"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "data_today")
@@ -106,7 +123,10 @@ class SpeedSensor(UsageEntity, SensorEntity):
     def __init__(self, entry, target: str, direction: str) -> None:
         super().__init__(entry, target, f"{direction}_speed")
         self.direction = direction
-        self._attr_icon = "mdi:download" if direction == "download" else "mdi:upload"
+        cfg = self.hub.cfg
+        # Changes every poll: keep only the useful ones on by default (enable others in the entity settings).
+        per_device_noise = bool(cfg.groups) and target not in cfg.groups
+        self._attr_entity_registry_enabled_default = direction == "download" and not per_device_noise
 
     @property
     def native_value(self) -> float:
@@ -117,7 +137,8 @@ class SpeedSensor(UsageEntity, SensorEntity):
 class TopAppSensor(UsageEntity, SensorEntity):
     """Most-used app today; the attributes list the top 10 with amounts."""
 
-    _attr_icon = "mdi:apps"
+    _unrecorded_attributes = frozenset({"apps", "apps_mb", "app_time", "traffic_identification"})
+
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "top_app")
@@ -153,11 +174,13 @@ class ScreenTimeSensor(UsageEntity, SensorEntity):
     Attributes give minutes per app, e.g. app_minutes: {"Youtube": 65}, for automations.
     """
 
+    _unrecorded_attributes = frozenset(
+        {"screen_time", "app_time", "app_minutes", "first_active", "last_active", "estimate"})
+
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:timer-sand"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "screen_time")
@@ -177,4 +200,34 @@ class ScreenTimeSensor(UsageEntity, SensorEntity):
             "first_active": _clock(u.active[0][0]) if u.active else None,
             "last_active": _clock(u.active[-1][1]) if u.active else None,
             "estimate": True,
+        }
+
+
+class TimeLeftSensor(UsageEntity, SensorEntity):
+    """Screen time left today under the kid's daily allowance (unknown when there's no limit)."""
+
+    _unrecorded_attributes = frozenset({"daily_limit", "extra_today", "used_today", "when_reached", "apps_left"})
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, entry, target: str) -> None:
+        super().__init__(entry, target, "time_left")
+
+    @property
+    def native_value(self) -> int | None:
+        left = self.hub.allowances.left(self.target)
+        return None if left is None else round(left)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        a = self.hub.allowances
+        used, _ = a.used(self.target)
+        return {
+            "daily_limit": a.config(self.target).get("screen_minutes") or 0,
+            "extra_today": a.bonus(self.target),
+            "used_today": round(used),
+            "when_reached": a.config(self.target).get("action", "pause"),
+            "apps_left": {app: human_duration(m * 60) for app, m in a.apps_left(self.target).items()},
         }

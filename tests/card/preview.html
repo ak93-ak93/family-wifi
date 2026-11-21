@@ -1,0 +1,66 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { --primary-color:#03a9f4; --primary-text-color:#212121; --secondary-text-color:#727272; --text-primary-color:#fff;
+    --card-background-color:#fff; --secondary-background-color:#f5f5f5; --divider-color:rgba(0,0,0,.12);
+    --success-color:#43a047; --error-color:#db4437; --warning-color:#ffa600; --disabled-text-color:#bdbdbd; }
+  body.dark { --primary-text-color:#e1e1e1; --secondary-text-color:#9b9b9b; --card-background-color:#1c1c1c;
+    --secondary-background-color:#2a2a2a; --divider-color:rgba(225,225,225,.12); --disabled-text-color:#6f6f6f; }
+  body { margin:0; padding:16px; background:var(--secondary-background-color); font-family: Roboto, -apple-system, system-ui, sans-serif; }
+  ha-card { display:block; background:var(--card-background-color); border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+</style></head><body>
+<script>customElements.define("ha-card", class extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML =
+    '<style>:host{display:block;background:var(--card-background-color);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.15)}</style><slot></slot>'; }
+});</script>
+<script src="../../custom_components/family_wifi/www/family-wifi-card.js"></script>
+<div id="mount"></div>
+<script>
+const later = (h) => new Date(Date.now() + h * 3600e3).toISOString();
+const ents = (n) => ({ internet: `switch.${n}_internet`, slow_down: `switch.${n}_slow_down`, status: `sensor.${n}_status`,
+  online: `binary_sensor.${n}_online`, data_today: `sensor.${n}_data_used_today`, screen_time: `sensor.${n}_screen_time_today`,
+  top_app: `sensor.${n}_top_app_today`, download_speed: `sensor.${n}_download_speed`,
+  time_left: `sensor.${n}_screen_time_left`, extra_time: `button.${n}_30_min`, daily_limit: `number.${n}_daily_screen_time` });
+const st = (entity_id, state, attributes = {}) => ({ entity_id, state, attributes });
+const states = {};
+const add = (s) => (states[s.entity_id] = s);
+add(st("sensor.family_wifi_active_restrictions", "2", { site_lists: ["Games", "Video", "Social"],
+  speeds: ["Slow (1 Mbps)", "Very slow (256 kbps)", "Homework (5 Mbps)"],
+  durations: ["15 min", "30 min", "1 hour", "2 hours", "until 7am", "until I undo"] }));
+// Alex: online, YouTube heavy, games blocked
+add(st("sensor.alex_status", "Websites blocked", { family_wifi_target: "Alex", is_group: true, devices: ["Alex iPad", "Alex Switch"], entities: ents("alex"),
+  restrictions: [{ what: "Block websites", who: "Alex", detail: "Games", ends_at: later(1.5) }] }));
+add(st("switch.alex_internet", "on")); add(st("binary_sensor.alex_online", "on"));
+add(st("sensor.alex_screen_time_today", "125", { unit_of_measurement: "min" }));
+add(st("sensor.alex_data_used_today", "1840", { unit_of_measurement: "MB" }));
+add(st("sensor.alex_download_speed", "6.4", { unit_of_measurement: "Mbit/s" }));
+add(st("sensor.alex_top_app_today", "Youtube", { apps: { Youtube: "1.2 GB", "Roblox Game": "210 MB", Instagram: "95 MB" },
+  app_time: { Youtube: "1 h 20 min", "Roblox Game": "35 min", Instagram: "12 min" } }));
+add(st("sensor.alex_screen_time_left", "unknown", { unit_of_measurement: "min" }));
+// Sam: used up the daily limit, paused until 7am, offline
+add(st("sensor.sam_status", "Paused", { family_wifi_target: "Sam", is_group: true, devices: ["Sam iPhone"], entities: ents("sam"),
+  restrictions: [{ what: "Pause internet", who: "Sam", detail: null, ends_at: later(9) }] }));
+add(st("sensor.sam_screen_time_left", "0", { unit_of_measurement: "min" }));
+add(st("switch.sam_internet", "off")); add(st("binary_sensor.sam_online", "off"));
+add(st("sensor.sam_screen_time_today", "48", { unit_of_measurement: "min" }));
+add(st("sensor.sam_data_used_today", "412", { unit_of_measurement: "MB" }));
+add(st("sensor.sam_download_speed", "0", { unit_of_measurement: "Mbit/s" }));
+add(st("sensor.sam_top_app_today", "Netflix", { apps: { Netflix: "380 MB" }, app_time: { Netflix: "42 min" } }));
+// A device (hidden by default because groups exist)
+add(st("sensor.alex_ipad_status", "Normal", { family_wifi_target: "Alex iPad", is_group: false, entities: ents("alex_ipad"), restrictions: [] }));
+
+const fmt = (s) => {
+  const u = s.attributes.unit_of_measurement, v = parseFloat(s.state);
+  if (u === "min") return v >= 60 ? `${Math.floor(v / 60)} h ${String(v % 60).padStart(2, "0")} min` : `${v} min`;
+  if (u === "MB") return v >= 1000 ? `${(v / 1000).toFixed(2)} GB` : `${v} MB`;
+  return `${s.state} ${u || ""}`;
+};
+window.calls = []; window.toasts = [];
+const hass = { states, formatEntityState: fmt,
+  callService: (d, s, data) => { window.calls.push([d, s, data]); return Promise.resolve(); } };
+const card = document.createElement("family-wifi-card");
+card.setConfig({});
+card.hass = hass;
+card.addEventListener("hass-notification", (e) => window.toasts.push(e.detail.message));
+document.getElementById("mount").appendChild(card);
+window.card = card;
+</script></body></html>

@@ -22,6 +22,7 @@ class Restriction:
     undo: dict = field(default_factory=dict)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     created: str = ""
+    reason: str = ""  # e.g. "Daily limit", "Youtube limit"; empty = set by a person
 
     def until_dt(self) -> datetime | None:
         return datetime.fromisoformat(self.until) if self.until else None

@@ -65,11 +65,132 @@ For each kid, group and device:
 
 | Entity | What it does |
 |---|---|
-| `switch.<name>_internet` | Turn **off** to pause the internet; turn **on** to restore it |
-| `switch.<name>_slow_down` | Turn **on** to limit speed (first speed preset) |
+| `switch.<name>_internet` | Turn **off** to pause the internet for the kid's *For how long* choice; turn **on** to restore it |
+| `switch.<name>_slow_down` | Turn **on** to limit speed to the kid's *Speed limit* choice (first preset until you pick one) |
+| `select.<name>_speed_limit` | Pick a speed to slow down to now (*Slow (1 Mbps)*, *Very slow (256 kbps)*, …) or *No limit* |
+| `select.<name>_for_how_long` | How long the Internet switch, Slow down switch and Speed limit apply: *15 min* … *until 7am*, *until I undo* (default). Remembered across restarts |
 | `sensor.<name>_status` | `Normal`, `Paused`, `Slowed`, `Websites blocked`; attributes list each restriction and when it ends |
 
 Plus `sensor.family_wifi_active_restrictions` (count, with a readable `summary` attribute).
+
+### Dashboard card
+
+The integration includes a **Family WiFi card** and loads it on every dashboard automatically, so there's
+nothing to install. Edit a dashboard → **Add card** → search **Family WiFi**, or add it in YAML:
+
+```yaml
+type: custom:family-wifi-card
+# all optional:
+title: Family WiFi
+targets: [Alex, Sam]            # default: every kid/group (devices too if you have no groups)
+show_devices: false             # true = also list individual devices
+pauses: ["30 min", "1 hour", "until 7am"]
+```
+
+<img src="docs/card-light.png" width="320" alt="Family WiFi card, light theme">
+<img src="docs/card-dark.png" width="320" alt="Family WiFi card, dark theme">
+
+Per kid: online dot, Internet on/off switch, active limits with end times, screen time, data today, current
+speed (or **Left today** when the kid has a daily limit), top apps with time, one-tap pauses, **Slow…** and
+**Block…** (pick a speed or website list and how long), **Restore**, and **+30 min** for kids with a limit. It follows your Home Assistant theme, light or dark.
+
+### Apple Home (and Siri)
+
+Home Assistant's **Matter Server** add-on only works one way: it lets Home Assistant *control* Matter devices.
+It can't share Home Assistant's own switches with Apple Home. Use one of these instead; they can run alongside it:
+
+| Option | How | Notes |
+|---|---|---|
+| **HomeKit Bridge** (built in, simplest) | Settings → Devices & services → Add integration → **HomeKit Bridge**. Include domain `switch` and pick the `switch.*_internet` (and `*_slow_down`) entities. Scan the QR code from the notification in the Home app. | Native Apple Home, no extra add-on |
+| **Home-Assistant-Matter-Hub** add-on ([RiDDiX fork](https://github.com/riddix/home-assistant-matter-hub), the maintained successor of t0bst4r's) | Install the add-on, create a bridge, filter to the Family WiFi switches (e.g. by a label), pair with the Matter QR code in the Home app | Matter, so it also works with Google Home and Alexa |
+| **Matterbridge** + [matterbridge-hass](https://github.com/Luligu/matterbridge-hass) | Add-on with a long-lived token; whitelist the switches | Matter alternative |
+
+Then in the Home app, **Alex Internet** works like a light switch: off pauses, on restores. Siri works too:
+*"Hey Siri, turn off Alex Internet."*
+
+Expose only the `Internet` and `Slow down` switches. Set *For how long* and *Speed limit* in Home Assistant
+first, and the switches in Apple Home will use them. Apple Home can't show text sensors like "Top app",
+and pass-through sensors just add clutter. For timed pauses from Siri, make a Home Assistant script
+(e.g. `family_wifi.pause` with `target: Alex, duration: 1 hour`) and expose that too. HomeKit Bridge shows
+scripts as switches.
+
+### Daily allowance (screen time and app limits)
+
+Per kid (group), set:
+
+- **Daily screen time**: `number.<kid>_daily_screen_time`, in minutes (0 = no limit). Change it from any
+  dashboard, or under **Configure → Daily limits**.
+- **When it runs out**: pause the internet, or slow it down (using the kid's *Speed limit* choice), until 7am.
+- **App limits** (Configure → Daily limits), one per line: `App = minutes, website list`. For example:
+  ```
+  Youtube = 60, Video
+  Roblox Game = 45, Games
+  Instagram = 30
+  ```
+  When an app's time is used up, that website list is blocked until 7am. With no list, the internet is paused.
+  App names are the ones shown in *Top app today*.
+
+| Entity / action | What it does |
+|---|---|
+| `sensor.<kid>_screen_time_left` | Minutes left today. Attributes: `used_today`, `daily_limit`, `extra_today`, `apps_left` |
+| `button.<kid>_30_min` | **+30 min** for today: adds to every limit and lifts any limit that already kicked in (pauses you set yourself stay) |
+| `family_wifi.extra_time` | Same with any number of minutes: `{target: Alex, minutes: 15}` |
+| Event `family_wifi_limit_warning` | 10 minutes left (`target`, `minutes_left`) |
+| Event `family_wifi_limit_reached` | Limit used up (`target`, `limit`, `app`, `message`). A Home Assistant notification is shown too |
+
+Send yourself a phone notification when a limit is reached:
+
+```yaml
+automation:
+  - alias: Family WiFi limit reached
+    triggers:
+      - trigger: event
+        event_type: family_wifi_limit_reached
+    actions:
+      - action: notify.mobile_app_your_phone
+        data:
+          message: "{{ trigger.event.data.message }}"
+```
+
+Limits reset at midnight. Screen time is an estimate (see below), so pick limits with a little slack.
+
+### Built on Home Assistant features
+
+Where Home Assistant already has a feature, Family WiFi uses it instead of building its own:
+
+| Need | Uses |
+|---|---|
+| Schedules (bedtime, school hours) | The **Schedule** helper plus an automation (example below). No schedule system of our own |
+| Notifications | Events (`family_wifi_limit_*`) + your `notify` services, and HA's notification panel |
+| Settings vs controls | Entity categories: *For how long* and *Daily screen time* are configuration entities |
+| Noisy entities | Upload speed and per-device speeds start disabled; enable them in the entity settings |
+| History database | Bulky attributes (app lists, card data) are excluded from recording |
+| Timers | HA's scheduler wakes the integration exactly when a pause ends |
+| Support | **Download diagnostics** on the integration page (passwords, keys and MACs removed) |
+| Icons, names, translations | `icons.json` / `strings.json`, so icons change with state (e.g. crossed-out globe when paused) |
+| Apple Home, Google, Alexa | HomeKit Bridge or a Matter bridge add-on, not a bridge of our own |
+
+All UniFi network calls and file access run in Home Assistant's worker threads, never on its main event loop.
+The tests enforce this with *blockbuster*, the same tool Home Assistant core uses.
+
+Bedtime with the Schedule helper: **Settings → Devices & services → Helpers → Create helper → Schedule**
+(e.g. "Kids bedtime": school nights 21:00–07:00), then:
+
+```yaml
+automation:
+  - alias: Kids bedtime
+    triggers:
+      - trigger: state
+        entity_id: schedule.kids_bedtime
+    actions:
+      - if: "{{ trigger.to_state.state == 'on' }}"
+        then:
+          - action: family_wifi.pause
+            data: {target: Kids, duration: until I undo}
+        else:
+          - action: family_wifi.restore
+            data: {target: Kids, only: pause}
+```
 
 ### Usage: online, data used, top apps
 

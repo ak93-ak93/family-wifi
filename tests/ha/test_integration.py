@@ -25,7 +25,7 @@ async def setup(hass, options=OPTIONS):
     entry = MockConfigEntry(domain=DOMAIN, data=DATA, options=options, title="Family WiFi")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)  # first usage read runs in the background
     return entry
 
 
@@ -118,12 +118,12 @@ async def test_actions_with_timer(hass, fake_unifi):
     status = await hass.services.async_call(DOMAIN, "status", {}, blocking=True, return_response=True)
     assert "Alex" in status["message"] and "Games" in status["message"]
 
-    # Pretend 31 minutes have passed: the pause is now due, the 2-hour block isn't.
+    # The pause ends by itself 30 minutes later: Home Assistant's scheduler wakes the integration.
     hub = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
-    for r in hub.svc.state.find("pause"):
+    for r in hub.svc.state.find("pause"):  # make it really due (expire() checks the wall clock)
         r.until = (dt_util.now() - timedelta(seconds=1)).isoformat()
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=20))
-    await hass.async_block_till_done(wait_background_tasks=True)  # timers run as background tasks
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=30, seconds=2))
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert fake_unifi.blocked == set()
     assert hass.states.get("switch.alex_internet").state == "on"
     assert len(fake_unifi.rules) == 1
@@ -209,3 +209,236 @@ async def test_usage_failure_does_not_break_controls(hass, fake_unifi):
     assert hass.states.get("binary_sensor.alex_online").state == "on"
     await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.alex_internet"}, blocking=True)
     assert fake_unifi.blocked == {A, B}
+
+
+async def test_card_attributes(hass, fake_unifi):
+    await setup(hass)
+    alex = hass.states.get("sensor.alex_status").attributes
+    assert alex["family_wifi_target"] == "Alex" and alex["is_group"] is True
+    assert alex["devices"] == ["Alex iPad", "Alex Switch"]
+    assert alex["entities"]["internet"] == "switch.alex_internet"
+    assert alex["entities"]["screen_time"] == "sensor.alex_screen_time_today"
+    assert alex["entities"]["online"] == "binary_sensor.alex_online"
+    assert hass.states.get("sensor.alex_ipad_status").attributes["is_group"] is False
+    menus = hass.states.get("sensor.family_wifi_active_restrictions").attributes
+    assert menus["site_lists"] == ["Games", "Video", "Social"]
+    assert menus["speeds"][0] == "Slow (1 Mbps)" and "until 7am" in menus["durations"]
+
+
+async def test_card_is_served_and_loaded(hass, fake_unifi, hass_client):
+    from unittest.mock import patch
+
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "http", {})
+    hass.config.components.add("frontend")
+    with patch("homeassistant.components.frontend.add_extra_js_url") as add_js:
+        assert await async_setup_component(hass, DOMAIN, {})
+    add_js.assert_called_once()
+    assert add_js.call_args.args[1].startswith("/family_wifi/family-wifi-card.js?v=")
+    client = await hass_client()
+    resp = await client.get("/family_wifi/family-wifi-card.js")
+    assert resp.status == 200
+    assert 'customElements.define("family-wifi-card"' in await resp.text()
+
+
+async def test_speed_limit_select(hass, fake_unifi):
+    await setup(hass)
+    sel = hass.states.get("select.sam_iphone_speed_limit")
+    assert sel.state == "No limit"
+    assert sel.attributes["options"] == ["No limit", "Slow (1 Mbps)", "Very slow (256 kbps)", "Homework (5 Mbps)"]
+
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.sam_iphone_speed_limit", "option": "Very slow (256 kbps)"}, blocking=True)
+    group = next(g for g in fake_unifi.groups if g["name"] == "FamilyWiFi Very slow (256 kbps)")
+    assert group["qos_rate_max_down"] == 256 and fake_unifi.users[C]["usergroup_id"] == group["_id"]
+    assert hass.states.get("select.sam_iphone_speed_limit").state == "Very slow (256 kbps)"
+    assert hass.states.get("switch.sam_iphone_slow_down").state == "on"
+
+    # Switch to another speed: the device keeps its original group to go back to.
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.sam_iphone_speed_limit", "option": "Homework (5 Mbps)"}, blocking=True)
+    assert hass.states.get("select.sam_iphone_speed_limit").state == "Homework (5 Mbps)"
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.sam_iphone_speed_limit", "option": "No limit"}, blocking=True)
+    assert fake_unifi.users[C]["usergroup_id"] == "g-default"
+    assert hass.states.get("switch.sam_iphone_slow_down").state == "off"
+
+    # The Slow down switch now uses the last speed picked.
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.sam_iphone_slow_down"}, blocking=True)
+    assert hass.states.get("select.sam_iphone_speed_limit").state == "Homework (5 Mbps)"
+
+
+async def test_duration_select_applies_to_switches(hass, fake_unifi):
+    entry = await setup(hass)
+    assert hass.states.get("select.alex_for_how_long").state == "until I undo"
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.alex_for_how_long", "option": "30 min"}, blocking=True)
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.alex_internet"}, blocking=True)
+    (r,) = entry.runtime_data.svc.state.find("pause")
+    left = (dt_util.parse_datetime(r.until) - dt_util.now()).total_seconds()
+    assert 29 * 60 < left <= 30 * 60
+    ends = hass.states.get("sensor.alex_status").attributes["restrictions"][0]["ends_at"]
+    assert ends == r.until
+
+
+async def test_duration_select_remembered_after_restart(hass, fake_unifi):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    mock_restore_cache(hass, [State("select.alex_for_how_long", "1 hour")])
+    await setup(hass)
+    assert hass.states.get("select.alex_for_how_long").state == "1 hour"
+
+
+def _fake_usage(entry, mac, screen_min, apps=None):
+    """Pretend `mac` was in use for screen_min minutes today (and per app)."""
+    from custom_components.family_wifi.core.usage import Usage
+
+    end = dt_util.now().timestamp()
+    entry.runtime_data.tracker.devices[mac] = Usage(
+        online=True, active=[(end - screen_min * 60, end)],
+        app_active={a: [(end - m * 60, end)] for a, m in (apps or {}).items()})
+
+
+async def test_daily_screen_time_limit(hass, fake_unifi):
+    from pytest_homeassistant_custom_component.common import async_capture_events
+
+    entry = await setup(hass, {**OPTIONS, "allowances": {"Alex": {"screen_minutes": 120, "action": "pause"}}})
+    warnings = async_capture_events(hass, "family_wifi_limit_warning")
+    reached = async_capture_events(hass, "family_wifi_limit_reached")
+    allow = entry.runtime_data.allowances
+    assert hass.states.get("number.alex_daily_screen_time").state == "120"
+    assert hass.states.get("button.alex_30_min") is not None
+    assert hass.states.get("number.alex_ipad_daily_screen_time") is None  # kids/groups only
+
+    _fake_usage(entry, A, 112)
+    await allow.async_check()
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.alex_screen_time_left").state == "8"
+    assert [e.data["minutes_left"] for e in warnings] == [8]
+    assert fake_unifi.blocked == set()
+
+    _fake_usage(entry, A, 121)
+    await allow.async_check()
+    await hass.async_block_till_done()
+    assert fake_unifi.blocked == {A, B}
+    (r,) = entry.runtime_data.svc.state.find("pause")
+    assert r.reason == "Limit: daily screen time" and dt_util.parse_datetime(r.until).hour == 7
+    assert reached[0].data["target"] == "Alex" and "2 h 00 min" in reached[0].data["message"]
+    assert hass.states.get("sensor.alex_screen_time_left").state == "0"
+    await allow.async_check()  # doesn't fire twice
+    assert len(reached) == 1
+
+    # +30 min: back online, 29 minutes left, and the limit fires again when that's used.
+    await hass.services.async_call("button", "press", {"entity_id": "button.alex_30_min"}, blocking=True)
+    assert fake_unifi.blocked == set()
+    assert hass.states.get("sensor.alex_screen_time_left").state == "29"
+    assert hass.states.get("sensor.alex_screen_time_left").attributes["extra_today"] == 30
+    _fake_usage(entry, A, 151)
+    await allow.async_check()
+    assert fake_unifi.blocked == {A, B} and len(reached) == 2
+
+
+async def test_app_limit_blocks_list_and_extra_time_keeps_manual_pause(hass, fake_unifi):
+    opts = {**OPTIONS, "allowances": {"Sam": {"screen_minutes": 0, "apps": {"Youtube": {"minutes": 60, "block": "Video"}}}}}
+    opts["groups"] = {**OPTIONS["groups"], "Sam": [C]}
+    entry = await setup(hass, opts)
+    allow = entry.runtime_data.allowances
+    assert hass.states.get("sensor.sam_screen_time_left").state == "unknown"  # no screen limit
+
+    _fake_usage(entry, C, 70, {"Youtube": 61})
+    await allow.async_check()
+    (rule,) = fake_unifi.rules.values()
+    assert "youtube.com" in [d["domain"] for d in rule["domains"]]
+    assert hass.states.get("sensor.sam_screen_time_left").attributes["apps_left"] == {"Youtube": "0 min"}
+
+    # A pause the parent set by hand is not lifted by extra time.
+    await hass.services.async_call(DOMAIN, "pause", {"target": "Sam", "duration": "1 hour"}, blocking=True)
+    resp = await hass.services.async_call(DOMAIN, "extra_time", {"target": "sam", "minutes": 15},
+                                          blocking=True, return_response=True)
+    assert resp["message"] == "⏱️ Sam got 15 more minutes today and is back online."
+    assert fake_unifi.rules == {}
+    assert fake_unifi.blocked == {C}
+    assert hass.states.get("sensor.sam_screen_time_left").attributes["apps_left"] == {"Youtube": "14 min"}
+
+
+async def test_daily_limit_number_and_options(hass, fake_unifi):
+    entry = await setup(hass)
+    await hass.services.async_call("number", "set_value",
+                                   {"entity_id": "number.kids_daily_screen_time", "value": 180}, blocking=True)
+    assert entry.options["allowances"]["Kids"]["screen_minutes"] == 180
+    assert hass.states.get("number.kids_daily_screen_time").state == "180"
+    assert hass.states.get("sensor.kids_screen_time_left").state == "180"
+
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "limits" in flow["menu_options"]
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "limits"})
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"kid": "Alex"})
+    assert flow["step_id"] == "limits_edit"
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"screen_minutes": 90, "action": "slow", "apps": "Youtube = 45, NoSuchList"})
+    assert flow["errors"] == {"apps": "bad_apps"}
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"screen_minutes": 90, "action": "slow", "apps": "Youtube = 45, video\nRoblox Game = 30"})
+    assert flow["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["allowances"]["Alex"] == {
+        "screen_minutes": 90, "action": "slow",
+        "apps": {"Youtube": {"minutes": 45, "block": "Video"}, "Roblox Game": {"minutes": 30, "block": ""}}}
+    assert entry.options["allowances"]["Kids"]["screen_minutes"] == 180  # untouched
+
+
+async def test_allowances_checked_after_each_usage_poll(hass, fake_unifi, freezer):
+    from unittest.mock import AsyncMock
+
+    entry = await setup(hass)
+    check = AsyncMock()
+    entry.runtime_data.allowances.async_check = check
+    freezer.tick(timedelta(minutes=3))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert check.await_count == 1
+
+
+async def test_home_assistant_friendly_defaults(hass, fake_unifi):
+    from homeassistant.const import EntityCategory
+    from homeassistant.helpers import entity_registry as er
+
+    await setup(hass)
+    reg = er.async_get(hass)
+    assert reg.async_get("select.alex_for_how_long").entity_category is EntityCategory.CONFIG
+    assert reg.async_get("number.alex_daily_screen_time").entity_category is EntityCategory.CONFIG
+    assert reg.async_get("sensor.alex_upload_speed").disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert reg.async_get("sensor.alex_ipad_download_speed").disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert reg.async_get("sensor.alex_download_speed").disabled_by is None
+    # Bulky attributes are kept out of the history database.
+    from custom_components.family_wifi.sensor import StatusSensor, TopAppSensor
+    assert "entities" in StatusSensor._unrecorded_attributes
+    assert "apps" in TopAppSensor._unrecorded_attributes
+
+
+async def test_diagnostics_redacted(hass, fake_unifi):
+    from custom_components.family_wifi.diagnostics import async_get_config_entry_diagnostics
+
+    entry = await setup(hass)
+    await hass.services.async_call(DOMAIN, "pause", {"target": "Alex", "duration": "1 hour"}, blocking=True)
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = str(diag)
+    for secret in ("p", A, B, C, "https://udm"):
+        assert f"'{secret}'" not in text
+    assert diag["entry"]["data"]["password"] == "**REDACTED**"
+    assert diag["entry"]["options"]["groups"] == {"Kids": "3 device(s)", "Alex": "2 device(s)"}
+    assert diag["restrictions"][0]["target"] == "Alex" and diag["unifi"]["auth_mode"] == "login"
+
+
+async def test_remove_deletes_saved_files(hass, fake_unifi):
+    import os
+
+    entry = await setup(hass)
+    await hass.services.async_call(DOMAIN, "pause", {"target": "Alex", "duration": "1 hour"}, blocking=True)
+    state_file = hass.config.path(".storage", f"{DOMAIN}.{entry.entry_id}.state.json")
+    assert await hass.async_add_executor_job(os.path.exists, state_file)
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not await hass.async_add_executor_job(os.path.exists, state_file)

@@ -16,6 +16,17 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_blocking_calls_in_event_loop():
+    """Fail any test where our code blocks Home Assistant's event loop (file I/O, sleep, sockets...).
+
+    Same tool Home Assistant core uses in its own test suite.
+    """
+    blockbuster = pytest.importorskip("blockbuster")
+    with blockbuster.blockbuster_ctx(["custom_components.family_wifi"]) as bb:
+        yield bb
+
+
 @pytest.fixture
 def fake_unifi():
     """Route every UniFi HTTP call made by the integration to a FakeUnifi."""

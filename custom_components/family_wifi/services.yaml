@@ -41,4 +41,15 @@ restore:
           translation_key: only
           options: ["pause", "slow", "sites"]
 
+extra_time:
+  fields:
+    target: *target
+    minutes:
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 720
+          unit_of_measurement: min
+
 status:

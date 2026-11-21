@@ -1,0 +1,82 @@
+{
+  "entity": {
+    "switch": {
+      "internet": {
+        "default": "mdi:web",
+        "state": {
+          "off": "mdi:web-off"
+        }
+      },
+      "slow_down": {
+        "default": "mdi:speedometer",
+        "state": {
+          "on": "mdi:speedometer-slow"
+        }
+      }
+    },
+    "select": {
+      "speed_limit": {
+        "default": "mdi:speedometer"
+      },
+      "duration": {
+        "default": "mdi:timer-outline"
+      }
+    },
+    "number": {
+      "daily_limit": {
+        "default": "mdi:timer-cog-outline"
+      }
+    },
+    "button": {
+      "extra_time": {
+        "default": "mdi:timer-plus-outline"
+      }
+    },
+    "sensor": {
+      "status": {
+        "default": "mdi:shield-account"
+      },
+      "active": {
+        "default": "mdi:router-network"
+      },
+      "data_today": {
+        "default": "mdi:chart-donut"
+      },
+      "download_speed": {
+        "default": "mdi:download"
+      },
+      "upload_speed": {
+        "default": "mdi:upload"
+      },
+      "top_app": {
+        "default": "mdi:apps"
+      },
+      "screen_time": {
+        "default": "mdi:timer-sand"
+      },
+      "time_left": {
+        "default": "mdi:timer-sand-complete"
+      }
+    }
+  },
+  "services": {
+    "pause": {
+      "service": "mdi:pause-circle"
+    },
+    "slow_down": {
+      "service": "mdi:speedometer-slow"
+    },
+    "block_websites": {
+      "service": "mdi:web-cancel"
+    },
+    "restore": {
+      "service": "mdi:restore"
+    },
+    "status": {
+      "service": "mdi:information-outline"
+    },
+    "extra_time": {
+      "service": "mdi:timer-plus-outline"
+    }
+  }
+}
