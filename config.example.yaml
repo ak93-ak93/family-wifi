@@ -1,0 +1,51 @@
+# Copy to config.yaml (or data/config.yaml for Docker) and fill in.
+
+unifi:
+  # Your UniFi console's local address. UDM / UDR / UCG / Cloud Key: https://192.168.1.1
+  # Standalone Network app: https://<host>:8443
+  url: https://192.168.1.1
+  # Sign in with an API key, a local account, or both (recommended):
+  # the key is tried first and the account is the fallback, because some
+  # UniFi versions only accept keys for part of the API.
+  #
+  # API key: UniFi Network > Settings > Control Plane > Integrations > Create API Key
+  api_key: ""
+  # Local account: UniFi OS > Admins & Users > Add Admin, "Restrict to local
+  # access only", role "Site Admin" for Network, no 2FA.
+  username: family-wifi
+  password: "put-the-password-here"
+  site: default
+  verify_ssl: false        # UniFi consoles use self-signed certificates
+
+# Secret the iPhone Shortcut sends. Make one with:  python3 -c "import secrets;print(secrets.token_urlsafe(24))"
+api_token: change-me
+
+timezone: America/Los_Angeles   # used for "until 7am"
+
+# Each device: name -> MAC address (or a list of MACs).
+# Find MACs in UniFi Network > Client Devices. On iPhones/iPads turn OFF
+# "Private Wi-Fi Address" for your home network (Settings > Wi-Fi > (i)),
+# or the MAC will change and rules won't follow the device.
+devices:
+  Alex iPad: "aa:bb:cc:dd:ee:01"
+  Alex Switch: "aa:bb:cc:dd:ee:02"
+  Sam iPhone: "aa:bb:cc:dd:ee:03"
+  Living Room TV: "aa:bb:cc:dd:ee:04"
+
+# Groups show at the top of the Shortcut's list.
+groups:
+  Kids: [Alex iPad, Alex Switch, Sam iPhone]
+  Alex: [Alex iPad, Alex Switch]
+  Sam: [Sam iPhone]
+
+# Website lists for "Block websites". Subdomains are covered too.
+site_lists:
+  Games: [roblox.com, fortnite.com, epicgames.com, minecraft.net]
+  Video: [youtube.com, googlevideo.com, ytimg.com, tiktok.com, twitch.tv]
+  Social: [tiktok.com, instagram.com, snapchat.com, discord.com]
+
+# Speeds for "Slow down" (kbps). The first one is the default.
+speeds:
+  - {name: "Slow (1 Mbps)", down_kbps: 1000, up_kbps: 500}
+  - {name: "Very slow (256 kbps)", down_kbps: 256, up_kbps: 128}
+  - {name: "Homework (5 Mbps)", down_kbps: 5000, up_kbps: 2000}

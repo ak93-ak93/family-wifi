@@ -1,0 +1,13 @@
+{
+  "domain": "family_wifi",
+  "name": "Family WiFi",
+  "codeowners": ["@ak93-ak93"],
+  "config_flow": true,
+  "documentation": "https://github.com/ak93-ak93/family-wifi",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/ak93-ak93/family-wifi/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

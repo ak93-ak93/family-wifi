@@ -1,0 +1,202 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to UniFi",
+        "description": "Use a UniFi API key (UniFi OS: Network → Settings → Control Plane → Integrations), a local-only admin account without two-factor authentication, or both. With both, the key is tried first and the account is the fallback.",
+        "data": {
+          "url": "Console address",
+          "api_key": "API key",
+          "username": "Username",
+          "password": "Password",
+          "site": "Site",
+          "verify_ssl": "Verify SSL certificate"
+        },
+        "data_description": {
+          "url": "UDM / UDR / UCG / Cloud Key: https://192.168.1.1. Standalone Network app: https://host:8443",
+          "site": "Leave as 'default' unless you have several UniFi sites",
+          "username": "Optional with an API key. Recommended as a fallback: some UniFi versions only accept keys for part of the API."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to UniFi again",
+        "data": {
+          "api_key": "API key",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "UniFi rejected the API key or the username/password.",
+      "cannot_connect": "Couldn't reach the UniFi console at that address.",
+      "need_auth": "Enter an API key, or a username and password."
+    },
+    "abort": {
+      "single_instance_allowed": "Family WiFi is already set up.",
+      "reauth_successful": "Signed in again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Family WiFi",
+        "menu_options": {
+          "group": "Add or edit a kid or group",
+          "remove_group": "Remove a kid or group",
+          "websites": "Website lists",
+          "speeds": "Slow-down speeds"
+        }
+      },
+      "group": {
+        "title": "Kids and groups",
+        "data": {
+          "group": "Which one?"
+        }
+      },
+      "group_edit": {
+        "title": "Kid or group",
+        "description": "Pick their devices. On iPhones and iPads, turn off Private Wi-Fi Address for your home network so the device keeps the same address.",
+        "data": {
+          "name": "Name (e.g. Alex, or Kids)",
+          "devices": "Devices"
+        }
+      },
+      "remove_group": {
+        "title": "Remove",
+        "data": {
+          "groups": "Remove these"
+        }
+      },
+      "websites": {
+        "title": "Website lists",
+        "data": {
+          "list": "Which list?"
+        }
+      },
+      "websites_edit": {
+        "title": "Website list",
+        "description": "One domain per line. Subdomains are blocked too. Blocking only works when the devices use your UniFi gateway for DNS.",
+        "data": {
+          "name": "List name",
+          "domains": "Domains",
+          "delete": "Delete this list"
+        }
+      },
+      "speeds": {
+        "title": "Slow-down speeds",
+        "description": "One per line: Name = download/upload in kbps. The first one is used by the Slow down switch.",
+        "data": {
+          "speeds": "Speeds"
+        }
+      }
+    },
+    "error": {
+      "required": "Required",
+      "name_taken": "That name is already used.",
+      "pick_devices": "Pick at least one device.",
+      "bad_domains": "Enter domains like youtube.com, one per line.",
+      "bad_speeds": "Use lines like: Slow = 1000/500"
+    },
+    "abort": {
+      "cannot_connect": "Couldn't reach UniFi to list devices."
+    }
+  },
+  "entity": {
+    "switch": {
+      "internet": {
+        "name": "Internet"
+      },
+      "slow_down": {
+        "name": "Slow down"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "active": {
+        "name": "Active restrictions"
+      }
+    }
+  },
+  "selector": {
+    "only": {
+      "options": {
+        "pause": "Pause",
+        "slow": "Slow down",
+        "sites": "Website blocks"
+      }
+    }
+  },
+  "services": {
+    "pause": {
+      "name": "Pause internet",
+      "description": "Block a kid, group or device from the internet, optionally for a while.",
+      "fields": {
+        "target": {
+          "name": "Who",
+          "description": "Kid, group or device name as set up in Family WiFi."
+        },
+        "duration": {
+          "name": "How long",
+          "description": "e.g. 30 min, 2 hours, until 7am, until I undo."
+        }
+      }
+    },
+    "slow_down": {
+      "name": "Slow down",
+      "description": "Limit the internet speed of a kid, group or device.",
+      "fields": {
+        "target": {
+          "name": "Who",
+          "description": "Kid, group or device name."
+        },
+        "duration": {
+          "name": "How long",
+          "description": "e.g. 30 min, 2 hours, until 7am, until I undo."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "One of your slow-down speeds. Defaults to the first."
+        }
+      }
+    },
+    "block_websites": {
+      "name": "Block websites",
+      "description": "Block a website list, or specific domains, for a kid, group or device.",
+      "fields": {
+        "target": {
+          "name": "Who",
+          "description": "Kid, group or device name."
+        },
+        "duration": {
+          "name": "How long",
+          "description": "e.g. 30 min, 2 hours, until 7am, until I undo."
+        },
+        "websites": {
+          "name": "Websites",
+          "description": "A website list name (e.g. Games) or domains separated by commas."
+        }
+      }
+    },
+    "restore": {
+      "name": "Restore",
+      "description": "Remove restrictions from a kid, group or device.",
+      "fields": {
+        "target": {
+          "name": "Who",
+          "description": "Kid, group or device name."
+        },
+        "only": {
+          "name": "Only",
+          "description": "Undo just this kind. Leave empty to undo everything."
+        }
+      }
+    },
+    "status": {
+      "name": "Status",
+      "description": "Returns a summary of what's active and when it ends."
+    }
+  }
+}

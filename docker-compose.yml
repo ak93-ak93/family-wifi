@@ -1,0 +1,9 @@
+services:
+  family-wifi:
+    build: .
+    container_name: family-wifi
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data   # put config.yaml here; state.json (active timers) is kept here too

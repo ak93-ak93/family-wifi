@@ -1,0 +1,44 @@
+pause:
+  fields:
+    target: &target
+      required: true
+      example: Kids
+      selector:
+        text:
+    duration: &duration
+      example: 30 min
+      default: until I undo
+      selector:
+        select:
+          custom_value: true
+          options: ["15 min", "30 min", "1 hour", "2 hours", "until 7am", "until I undo"]
+
+slow_down:
+  fields:
+    target: *target
+    duration: *duration
+    speed:
+      example: Slow (1 Mbps)
+      selector:
+        text:
+
+block_websites:
+  fields:
+    target: *target
+    duration: *duration
+    websites:
+      required: true
+      example: Games
+      selector:
+        text:
+
+restore:
+  fields:
+    target: *target
+    only:
+      selector:
+        select:
+          translation_key: only
+          options: ["pause", "slow", "sites"]
+
+status:
