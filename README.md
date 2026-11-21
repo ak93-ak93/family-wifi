@@ -67,6 +67,31 @@ For each kid, group and device:
 
 Plus `sensor.family_wifi_active_restrictions` (count, with a readable `summary` attribute).
 
+### Usage: online, data used, top apps
+
+For each kid, group and device, refreshed every 2 minutes:
+
+| Entity | Shows |
+|---|---|
+| `binary_sensor.<name>_online` | Whether any of their devices is connected (attribute: which ones) |
+| `sensor.<name>_data_used_today` | Download + upload since midnight. Kept as long-term statistics, so you get daily history graphs |
+| `sensor.<name>_download_speed` / `_upload_speed` | Speed right now |
+| `sensor.<name>_top_app_today` | Most-used app today, e.g. *Youtube*. Attribute `apps` lists the top 10 with amounts |
+
+Notes:
+
+- **Top apps** need **Traffic Identification** turned on in UniFi (Settings → Traffic Management / Security,
+  depending on version). App names come from [unpoller](https://github.com/unpoller/unifi) (MIT).
+  Newer apps that list doesn't know show as e.g. *Other Media Streaming*. App counting starts from when the
+  integration first sees a device, then resets at midnight.
+- **Data used today** comes from UniFi's own usage reports, the same numbers as the UniFi app.
+- **Websites visited:** UniFi doesn't record which sites (domains) a device opens, so this can't show them.
+  The app list is the closest UniFi gets.
+
+**Dashboard:** [`docs/dashboard.yaml`](docs/dashboard.yaml) is a ready-made view with pause/slow-down buttons,
+data today, speed, top apps, a 7-day data chart and an online timeline per kid. Paste it in the raw
+configuration editor and replace `alex` with each kid's name.
+
 ### Actions (with timers)
 
 | Action | Fields |
@@ -178,6 +203,9 @@ All good.
 ```
 
 The output above is an illustration, not from a real console.
+
+Add `--usage` to also see who's online, data used today and top apps (checks the Home Assistant usage sensors
+will work).
 
 Then try a real pause on one device. It pauses for 60 seconds and restores it, even if you press Ctrl-C:
 

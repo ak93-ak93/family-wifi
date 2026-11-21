@@ -117,6 +117,23 @@
       },
       "active": {
         "name": "Active restrictions"
+      },
+      "data_today": {
+        "name": "Data used today"
+      },
+      "download_speed": {
+        "name": "Download speed"
+      },
+      "upload_speed": {
+        "name": "Upload speed"
+      },
+      "top_app": {
+        "name": "Top app today"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
       }
     }
   },

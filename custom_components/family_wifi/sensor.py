@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.const import UnitOfDataRate, UnitOfInformation
 
 from .core.service import ACTIONS
-from .entity import FamilyWifiEntity
+from .core.usage import human_bytes
+from .entity import FamilyWifiEntity, UsageEntity
 
 KIND_WORD = {"pause": "Paused", "slow": "Slowed", "sites": "Websites blocked"}
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
     targets = entry.runtime_data.cfg.targets()
-    async_add_entities([StatusSensor(entry, t) for t in targets] + [ActiveSensor(entry)])
+    entities = [StatusSensor(entry, t) for t in targets] + [ActiveSensor(entry)]
+    for t in targets:
+        entities += [DataTodaySensor(entry, t), SpeedSensor(entry, t, "download"),
+                     SpeedSensor(entry, t, "upload"), TopAppSensor(entry, t)]
+    async_add_entities(entities)
 
 
 def _describe(r) -> dict:
@@ -63,3 +69,72 @@ class ActiveSensor(FamilyWifiEntity, SensorEntity):
             "summary": self.hub.svc.status(),
             "restrictions": [_describe(r) for r in self.hub.svc.state.find()],
         }
+
+
+class DataTodaySensor(UsageEntity, SensorEntity):
+    """Data used since midnight (download + upload), from UniFi's usage reports."""
+
+    _attr_device_class = SensorDeviceClass.DATA_SIZE
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfInformation.BYTES
+    _attr_suggested_unit_of_measurement = UnitOfInformation.MEGABYTES
+    _attr_suggested_display_precision = 0
+    _attr_icon = "mdi:chart-donut"
+
+    def __init__(self, entry, target: str) -> None:
+        super().__init__(entry, target, "data_today")
+
+    @property
+    def native_value(self) -> int | None:
+        return self.usage.today_bytes
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.hub.tracker.reports_available is not False
+
+
+class SpeedSensor(UsageEntity, SensorEntity):
+    """Current download or upload speed."""
+
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.BYTES_PER_SECOND
+    _attr_suggested_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, entry, target: str, direction: str) -> None:
+        super().__init__(entry, target, f"{direction}_speed")
+        self.direction = direction
+        self._attr_icon = "mdi:download" if direction == "download" else "mdi:upload"
+
+    @property
+    def native_value(self) -> float:
+        u = self.usage
+        return u.down_bps if self.direction == "download" else u.up_bps
+
+
+class TopAppSensor(UsageEntity, SensorEntity):
+    """Most-used app today; the attributes list the top 10 with amounts."""
+
+    _attr_icon = "mdi:apps"
+
+    def __init__(self, entry, target: str) -> None:
+        super().__init__(entry, target, "top_app")
+
+    @property
+    def native_value(self) -> str:
+        top = self.usage.top_apps(1)
+        return top[0][0] if top else "None yet"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        top = self.usage.top_apps(10)
+        return {
+            "apps": {name: human_bytes(b) for name, b in top},
+            "apps_mb": {name: round(b / 1e6, 1) for name, b in top},
+            "traffic_identification": {True: "on", False: "off in UniFi", None: "unknown"}[self.hub.tracker.dpi_available],
+        }
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.hub.tracker.dpi_available is not False

@@ -133,7 +133,9 @@ def test_home_assistant_copy_is_in_sync():
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent
-    for name in ["config.py", "durations.py", "service.py", "state.py", "unifi.py"]:
+    from scripts.sync_core import SHARED
+
+    for name in SHARED:
         assert (root / "family_wifi" / name).read_text() == (
             root / "custom_components/family_wifi/core" / name
         ).read_text(), f"{name} differs: run python scripts/sync_core.py"
@@ -184,9 +186,53 @@ unifi: {{url: "https://udm", api_key: good-key}}
 api_token: t0ken
 devices: {{Alex iPad: "{A}", Old Phone: "02:11:22:33:44:55"}}
 """)
-    assert check.main(["--config", str(cfgfile), "--try-pause", "alex ipad", "--seconds", "1"]) == 0
+    fake.dpi[A] = [{"cat": 4, "app": 112, "rx_bytes": 0, "tx_bytes": 9_000_000}]
+    assert check.main(["--config", str(cfgfile), "--usage", "--try-pause", "alex ipad", "--seconds", "1"]) == 0
     out = capsys.readouterr().out
     assert "API key" in out and "All good" in out
     assert "never seen: Old Phone" in out
+    assert "Alex iPad: online, today 0 B" in out and "top apps (all time) Youtube" in out
     assert "good-key" not in out
     assert fake.blocked == set()  # restored after the trial pause
+
+
+def test_usage_tracker(tmp_path):
+    from family_wifi.usage import UsageTracker, human_bytes
+
+    fake = FakeUnifi()
+    now = datetime(2026, 11, 21, 15, 20, tzinfo=TZ)
+    ms = lambda h, m=0: int(now.replace(hour=h, minute=m).timestamp() * 1000)
+    fake.reports["hourly"][A] = [{"time": ms(9), "rx_bytes": 10_000_000, "tx_bytes": 200_000_000},
+                                 {"time": ms(14), "rx_bytes": 0, "tx_bytes": 90_000_000}]
+    fake.reports["5minutes"][A] = [{"time": ms(15, 5), "rx_bytes": 0, "tx_bytes": 5_000_000}]
+    youtube, roblox = {"cat": 4, "app": 112}, {"cat": 8, "app": 253}
+    fake.dpi[A] = [{**youtube, "rx_bytes": 1_000, "tx_bytes": 100_000_000}, {**roblox, "rx_bytes": 0, "tx_bytes": 5_000}]
+
+    t = UsageTracker(_client(fake, api_key="good-key"), str(tmp_path / "usage.json"))
+    u = t.poll([A, B], now)
+    assert u[A].online and u[A].down_bps == 250_000 and not u[B].online
+    assert u[A].today_bytes == 305_000_000 and u[B].today_bytes == 0
+    assert u[A].apps == {}  # first look only sets the starting point
+
+    fake.dpi[A] = [{**youtube, "rx_bytes": 2_000, "tx_bytes": 400_000_000}, {**roblox, "rx_bytes": 0, "tx_bytes": 3_000}]
+    u = t.poll([A, B], now + timedelta(minutes=2))
+    assert u[A].top_apps() == [("Youtube", 300_001_000), ("Roblox Game", 3_000)]  # roblox counter reset
+    kids = t.for_macs([A, B])
+    assert kids.online and kids.today_bytes == 305_000_000
+    assert human_bytes(kids.today_bytes) == "305.0 MB"
+
+    # Survives a restart, and starts again from zero the next day.
+    t2 = UsageTracker(_client(fake, api_key="good-key"), str(tmp_path / "usage.json"))
+    fake.dpi[A] = [{**youtube, "rx_bytes": 2_000, "tx_bytes": 450_000_000}]
+    assert t2.poll([A], now + timedelta(minutes=4))[A].apps["Youtube"] == 350_001_000
+    assert t2.poll([A], now + timedelta(days=1))[A].apps == {"Youtube": 0}
+
+
+def test_usage_without_dpi_or_reports(tmp_path):
+    from family_wifi.usage import UsageTracker
+
+    fake = FakeUnifi()
+    fake.dpi_enabled = False
+    t = UsageTracker(_client(fake, api_key="good-key"), str(tmp_path / "usage.json"))
+    u = t.poll([A], datetime(2026, 11, 21, 15, 20, tzinfo=TZ))
+    assert u[A].online and u[A].apps == {} and t.dpi_available is False

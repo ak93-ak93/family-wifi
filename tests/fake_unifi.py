@@ -20,7 +20,12 @@ class FakeUnifi:
         self.calls = []
         self.reject_login = False
         self.api_key = "good-key"
-        self.key_allowed = True  # does this console accept API keys on these endpoints?
+        self.key_allowed = True
+        self.online = {A: {"tx_bytes-r": 250_000, "rx_bytes-r": 20_000}}
+        # {"hourly"|"5minutes": {mac: [{"time": ms, "rx_bytes": .., "tx_bytes": ..}]}}
+        self.reports = {"hourly": {}, "5minutes": {}}
+        self.dpi = {}  # {mac: [{"cat": .., "app": .., "rx_bytes": .., "tx_bytes": ..}]}
+        self.dpi_enabled = True  # does this console accept API keys on these endpoints?
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         p, m = req.url.path, req.method
@@ -51,7 +56,15 @@ class FakeUnifi:
                 self.blocked.discard(body["mac"])
             return ok([])
         if p == base + "/stat/sta":
-            return ok([{"mac": A}])
+            return ok([{"mac": m, **v} for m, v in self.online.items()])
+        if p.startswith(base + "/stat/report/"):
+            interval = p.rsplit("/", 1)[1].removesuffix(".user")
+            rows = self.reports[interval].get(body["mac"], [])
+            return ok([{**r, "user": body["mac"]} for r in rows if body["start"] <= r["time"] <= body["end"]])
+        if p == base + "/stat/stadpi":
+            if not self.dpi_enabled:
+                return httpx.Response(400, json={"meta": {"rc": "error", "msg": "api.err.DpiNotEnabled"}})
+            return ok([{"mac": m, "by_app": rows} for m, rows in self.dpi.items() if m in body["macs"]])
         if p.startswith(base + "/stat/user/"):
             u = self.users.get(p.rsplit("/", 1)[1])
             return ok([u] if u else [])

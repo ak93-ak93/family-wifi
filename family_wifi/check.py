@@ -1,6 +1,7 @@
 """Check that Family WiFi can control your UniFi console.
 
     python -m family_wifi.check                    # read-only checks
+    python -m family_wifi.check --usage            # also show data used today and top apps
     python -m family_wifi.check --try-pause "Alex iPad"   # also pause one device for 60 s
 
 Docker:  docker compose run --rm family-wifi python -m family_wifi.check
@@ -18,6 +19,7 @@ import httpx
 
 from .config import load_config
 from .unifi import UnifiClient, UnifiError
+from .usage import UsageTracker, human_bytes
 
 OK, WARN, FAIL = "✅", "⚠️ ", "❌"
 
@@ -27,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", help="path to config.yaml")
     ap.add_argument("--try-pause", metavar="DEVICE", help="pause this device or group for --seconds, then restore it")
     ap.add_argument("--seconds", type=int, default=60)
+    ap.add_argument("--usage", action="store_true", help="also show online status, data used today and top apps")
     ap.add_argument("--show-rules", action="store_true", help="print your existing traffic rules (JSON)")
     args = ap.parse_args(argv)
 
@@ -103,6 +106,41 @@ def main(argv: list[str] | None = None) -> int:
         return "allowed (tested with a made-up device)"
 
     step("Permission to block devices (needed for Pause)", write_check)
+
+    def usage():
+        from datetime import datetime
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from zoneinfo import ZoneInfo
+
+        macs = sorted({m for ms in cfg.devices.values() for m in ms})
+        if not macs:
+            return "no devices in config"
+        with TemporaryDirectory() as tmp:
+            tracker = UsageTracker(client, str(Path(tmp) / "usage.json"))
+            now = datetime.now(ZoneInfo(cfg.timezone))
+            data = tracker.poll(macs, now)
+            # DPI only gives running totals, so show the totals once for a sanity check.
+            rows = client.request("POST", "/stat/stadpi", {"type": "by_app", "macs": macs}) if tracker.dpi_available else []
+        lines = []
+        for name, ms in cfg.devices.items():
+            u = tracker.for_macs(ms)
+            lines.append(f"   {name}: {'online' if u.online else 'offline'}, today {human_bytes(u.today_bytes)}")
+        if tracker.reports_available is False:
+            lines.append(f"   {WARN} usage reports not available, so 'Data used today' won't work")
+        if tracker.dpi_available is False:
+            lines.append(f"   {WARN} traffic identification is off: turn it on in UniFi for 'Top app today'")
+        else:
+            from .usage import app_name
+            for row in rows or []:
+                apps = sorted(row.get("by_app") or [], key=lambda a: -(int(a.get("rx_bytes") or 0) + int(a.get("tx_bytes") or 0)))[:3]
+                if apps:
+                    names = ", ".join(app_name(int(a.get("cat", 0)), int(a.get("app", 0))) for a in apps)
+                    lines.append(f"   {row.get('mac')}: top apps (all time) {names}")
+        return "\n" + "\n".join(lines)
+
+    if args.usage:
+        step("Usage (online, data today, apps)", usage)
 
     if args.try_pause:
         macs = cfg.resolve(args.try_pause)

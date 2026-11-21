@@ -1,0 +1,57 @@
+# Family WiFi dashboard view: one column per kid.
+# Home Assistant: Settings > Dashboards > (your dashboard) > ⋮ Edit > ⋮ Raw configuration editor,
+# and paste this under `views:`. Then search-and-replace `alex` / `Alex` for each kid
+# (entity ids are your kid's name in lower case, spaces become _).
+- title: Family WiFi
+  path: family-wifi
+  icon: mdi:router-wireless
+  type: sections
+  sections:
+    - type: grid
+      cards:
+        - type: heading
+          heading: Alex
+          badges:
+            - type: entity
+              entity: binary_sensor.alex_online
+              show_state: true
+        - type: tile
+          entity: switch.alex_internet
+          name: Internet
+          features_position: inline
+        - type: tile
+          entity: switch.alex_slow_down
+          name: Slow down
+        - type: tile
+          entity: sensor.alex_status
+          name: Status
+        - type: tile
+          entity: sensor.alex_data_used_today
+          name: Data today
+        - type: tile
+          entity: sensor.alex_download_speed
+          name: Speed now
+        - type: markdown
+          title: Top apps today
+          content: >-
+            {% set apps = state_attr('sensor.alex_top_app_today', 'apps') or {} %}
+            {% if apps %}{% for name, amount in apps.items() %}
+            - **{{ name }}**: {{ amount }}
+            {% endfor %}{% elif state_attr('sensor.alex_top_app_today', 'traffic_identification') == 'off in UniFi' %}
+            Turn on Traffic Identification in UniFi to see apps.
+            {% else %}Nothing yet today.{% endif %}
+        - type: statistics-graph
+          title: Data per day
+          entities:
+            - entity: sensor.alex_data_used_today
+              name: Alex
+          stat_types: [change]
+          period: day
+          days_to_show: 7
+          chart_type: bar
+        - type: history-graph
+          title: Online today
+          hours_to_show: 24
+          entities:
+            - entity: binary_sensor.alex_online
+              name: Online
