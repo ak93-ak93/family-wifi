@@ -56,6 +56,8 @@ cp config.example.yaml config.yaml && nano config.yaml
 python -m family_wifi            # listens on port 8787
 ```
 
+<img src="docs/screenshot-control-page.png" width="300" alt="Family WiFi control page on an iPhone">
+
 Check it: open `http://<server-ip>:8787` on your phone, paste your `api_token`, and you get a
 simple control page. Add it to your Home Screen with **Share → Add to Home Screen** for an app-like icon.
 
