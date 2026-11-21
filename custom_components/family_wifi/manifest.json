@@ -1,7 +1,13 @@
 {
   "domain": "family_wifi",
   "name": "Family WiFi",
-  "codeowners": ["@ak93-ak93"],
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
+  "codeowners": [
+    "@ak93-ak93"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/ak93-ak93/family-wifi",
   "integration_type": "hub",
@@ -9,5 +15,5 @@
   "issue_tracker": "https://github.com/ak93-ak93/family-wifi/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

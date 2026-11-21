@@ -71,6 +71,46 @@ For each kid, group and device:
 
 Plus `sensor.family_wifi_active_restrictions` (count, with a readable `summary` attribute).
 
+### Dashboard card
+
+The integration includes a **Family WiFi card** and loads it on every dashboard automatically, so there's
+nothing to install. Edit a dashboard → **Add card** → search **Family WiFi**, or add it in YAML:
+
+```yaml
+type: custom:family-wifi-card
+# all optional:
+title: Family WiFi
+targets: [Alex, Sam]            # default: every kid/group (devices too if you have no groups)
+show_devices: false             # true = also list individual devices
+pauses: ["30 min", "1 hour", "until 7am"]
+```
+
+<img src="docs/card-light.png" width="320" alt="Family WiFi card, light theme">
+<img src="docs/card-dark.png" width="320" alt="Family WiFi card, dark theme">
+
+Per kid: online dot, Internet on/off switch, active limits with end times, screen time, data today, current
+speed, top apps with time, one-tap pauses, **Slow…** and **Block…** (pick a speed or website list and how long),
+and **Restore**. It follows your Home Assistant theme, light or dark.
+
+### Apple Home (and Siri)
+
+Home Assistant's **Matter Server** add-on only works one way: it lets Home Assistant *control* Matter devices.
+It can't share Home Assistant's own switches with Apple Home. Use one of these instead; they can run alongside it:
+
+| Option | How | Notes |
+|---|---|---|
+| **HomeKit Bridge** (built in, simplest) | Settings → Devices & services → Add integration → **HomeKit Bridge**. Include domain `switch` and pick the `switch.*_internet` (and `*_slow_down`) entities. Scan the QR code from the notification in the Home app. | Native Apple Home, no extra add-on |
+| **Home-Assistant-Matter-Hub** add-on ([RiDDiX fork](https://github.com/riddix/home-assistant-matter-hub), the maintained successor of t0bst4r's) | Install the add-on, create a bridge, filter to the Family WiFi switches (e.g. by a label), pair with the Matter QR code in the Home app | Matter, so it also works with Google Home and Alexa |
+| **Matterbridge** + [matterbridge-hass](https://github.com/Luligu/matterbridge-hass) | Add-on with a long-lived token; whitelist the switches | Matter alternative |
+
+Then in the Home app, **Alex Internet** works like a light switch: off pauses, on restores. Siri works too:
+*"Hey Siri, turn off Alex Internet."*
+
+Expose only the `Internet` and `Slow down` switches. Apple Home can't show text sensors like "Top app",
+and pass-through sensors just add clutter. For timed pauses from Siri, make a Home Assistant script
+(e.g. `family_wifi.pause` with `target: Alex, duration: 1 hour`) and expose that too. HomeKit Bridge shows
+scripts as switches.
+
 ### Usage: online, data used, top apps
 
 For each kid, group and device, refreshed every 2 minutes:

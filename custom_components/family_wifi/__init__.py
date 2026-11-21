@@ -141,6 +141,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: FamilyWifiConfigEntry) -
     await _tick()  # catch up on timers that ended while HA was off
     entry.async_on_unload(async_track_time_interval(hass, _tick, TICK))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Now that every entity exists, refresh so the status sensors can list their siblings for the card.
+    async_dispatcher_send(hass, SIGNAL_UPDATE)
     return True
 
 
@@ -180,7 +182,30 @@ async def run_action(hass: HomeAssistant, action: str, target: str | None = None
     return msg
 
 
+CARD_URL = "/family_wifi/family-wifi-card.js"
+
+
+async def _register_card(hass: HomeAssistant) -> None:
+    """Serve the dashboard card and load it on every dashboard (no manual resource needed)."""
+    if "frontend" not in hass.config.components or hass.http is None:
+        return
+    from pathlib import Path
+
+    from homeassistant.components.frontend import add_extra_js_url
+    from homeassistant.components.http import StaticPathConfig
+    from homeassistant.loader import async_get_integration
+
+    version = (await async_get_integration(hass, DOMAIN)).version
+    path = Path(__file__).parent / "www" / "family-wifi-card.js"
+    await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(path), True)])
+    add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    try:
+        await _register_card(hass)
+    except Exception:  # noqa: BLE001 - the card is optional, the integration must still load
+        _LOGGER.exception("Couldn't register the Family WiFi dashboard card")
     for name, (action, schema) in SERVICES.items():
 
         async def handle(call: ServiceCall, action=action) -> ServiceResponse:

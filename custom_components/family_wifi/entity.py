@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
@@ -13,6 +14,12 @@ from .core.state import Restriction
 from .core.usage import Usage
 
 
+SIBLINGS = {
+    "internet": "switch", "slow_down": "switch", "status": "sensor", "online": "binary_sensor",
+    "data_today": "sensor", "screen_time": "sensor", "top_app": "sensor", "download_speed": "sensor",
+}
+
+
 class FamilyWifiEntity(Entity):
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -21,7 +28,8 @@ class FamilyWifiEntity(Entity):
         self.hub = entry.runtime_data
         self.target = target
         scope = slugify(target) if target else "all"
-        self._attr_unique_id = f"{entry.entry_id}_{scope}_{key}"
+        self._scope_id = f"{entry.entry_id}_{scope}"
+        self._attr_unique_id = f"{self._scope_id}_{key}"
         self._attr_translation_key = key
         name = target or "Family WiFi"
         self._attr_device_info = DeviceInfo(
@@ -30,6 +38,15 @@ class FamilyWifiEntity(Entity):
             manufacturer="Family WiFi",
             model="Group" if target in self.hub.cfg.groups else ("Device" if target else "Controller"),
         )
+
+    def sibling_ids(self) -> dict[str, str]:
+        """Entity ids of this target's other entities, for the dashboard card."""
+        reg = er.async_get(self.hass)
+        out = {}
+        for key, domain in SIBLINGS.items():
+            if eid := reg.async_get_entity_id(domain, DOMAIN, f"{self._scope_id}_{key}"):
+                out[key] = eid
+        return out
 
     @property
     def macs(self) -> list[str]:

@@ -209,3 +209,34 @@ async def test_usage_failure_does_not_break_controls(hass, fake_unifi):
     assert hass.states.get("binary_sensor.alex_online").state == "on"
     await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.alex_internet"}, blocking=True)
     assert fake_unifi.blocked == {A, B}
+
+
+async def test_card_attributes(hass, fake_unifi):
+    await setup(hass)
+    alex = hass.states.get("sensor.alex_status").attributes
+    assert alex["family_wifi_target"] == "Alex" and alex["is_group"] is True
+    assert alex["devices"] == ["Alex iPad", "Alex Switch"]
+    assert alex["entities"]["internet"] == "switch.alex_internet"
+    assert alex["entities"]["screen_time"] == "sensor.alex_screen_time_today"
+    assert alex["entities"]["online"] == "binary_sensor.alex_online"
+    assert hass.states.get("sensor.alex_ipad_status").attributes["is_group"] is False
+    menus = hass.states.get("sensor.family_wifi_active_restrictions").attributes
+    assert menus["site_lists"] == ["Games", "Video", "Social"]
+    assert menus["speeds"][0] == "Slow (1 Mbps)" and "until 7am" in menus["durations"]
+
+
+async def test_card_is_served_and_loaded(hass, fake_unifi, hass_client):
+    from unittest.mock import patch
+
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "http", {})
+    hass.config.components.add("frontend")
+    with patch("homeassistant.components.frontend.add_extra_js_url") as add_js:
+        assert await async_setup_component(hass, DOMAIN, {})
+    add_js.assert_called_once()
+    assert add_js.call_args.args[1].startswith("/family_wifi/family-wifi-card.js?v=")
+    client = await hass_client()
+    resp = await client.get("/family_wifi/family-wifi-card.js")
+    assert resp.status == 200
+    assert 'customElements.define("family-wifi-card"' in await resp.text()

@@ -6,7 +6,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, Sen
 from homeassistant.const import UnitOfDataRate, UnitOfInformation, UnitOfTime
 from homeassistant.util import dt as dt_util
 
-from .core.service import ACTIONS
+from .core.service import ACTIONS, DURATIONS
 from .core.usage import human_bytes, human_duration
 from .entity import FamilyWifiEntity, UsageEntity
 
@@ -48,7 +48,15 @@ class StatusSensor(FamilyWifiEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         rs = self.restrictions()
         ends = [r.until for r in rs if r.until]
-        return {"restrictions": [_describe(r) for r in rs], "next_change": min(ends) if ends else None}
+        return {
+            "restrictions": [_describe(r) for r in rs],
+            "next_change": min(ends) if ends else None,
+            # Used by the Family WiFi dashboard card to find everything for this kid.
+            "family_wifi_target": self.target,
+            "is_group": self.target in self.hub.cfg.groups,
+            "devices": self.hub.cfg.groups.get(self.target, [self.target]),
+            "entities": self.sibling_ids(),
+        }
 
 
 class ActiveSensor(FamilyWifiEntity, SensorEntity):
@@ -66,9 +74,15 @@ class ActiveSensor(FamilyWifiEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
+        cfg = self.hub.cfg
         return {
             "summary": self.hub.svc.status(),
             "restrictions": [_describe(r) for r in self.hub.svc.state.find()],
+            # Menus for the Family WiFi dashboard card.
+            "site_lists": list(cfg.site_lists),
+            "speeds": [s.name for s in cfg.speeds],
+            "durations": DURATIONS,
+            "groups": list(cfg.groups),
         }
 
 
