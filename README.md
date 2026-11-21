@@ -91,8 +91,8 @@ pauses: ["30 min", "1 hour", "until 7am"]
 <img src="docs/card-dark.png" width="320" alt="Family WiFi card, dark theme">
 
 Per kid: online dot, Internet on/off switch, active limits with end times, screen time, data today, current
-speed, top apps with time, one-tap pauses, **Slow…** and **Block…** (pick a speed or website list and how long),
-and **Restore**. It follows your Home Assistant theme, light or dark.
+speed (or **Left today** when the kid has a daily limit), top apps with time, one-tap pauses, **Slow…** and
+**Block…** (pick a speed or website list and how long), **Restore**, and **+30 min** for kids with a limit. It follows your Home Assistant theme, light or dark.
 
 ### Apple Home (and Siri)
 
@@ -113,6 +113,46 @@ first, and the switches in Apple Home will use them. Apple Home can't show text 
 and pass-through sensors just add clutter. For timed pauses from Siri, make a Home Assistant script
 (e.g. `family_wifi.pause` with `target: Alex, duration: 1 hour`) and expose that too. HomeKit Bridge shows
 scripts as switches.
+
+### Daily allowance (screen time and app limits)
+
+Per kid (group), set:
+
+- **Daily screen time**: `number.<kid>_daily_screen_time`, in minutes (0 = no limit). Change it from any
+  dashboard, or under **Configure → Daily limits**.
+- **When it runs out**: pause the internet, or slow it down (using the kid's *Speed limit* choice), until 7am.
+- **App limits** (Configure → Daily limits), one per line: `App = minutes, website list`. For example:
+  ```
+  Youtube = 60, Video
+  Roblox Game = 45, Games
+  Instagram = 30
+  ```
+  When an app's time is used up, that website list is blocked until 7am. With no list, the internet is paused.
+  App names are the ones shown in *Top app today*.
+
+| Entity / action | What it does |
+|---|---|
+| `sensor.<kid>_screen_time_left` | Minutes left today. Attributes: `used_today`, `daily_limit`, `extra_today`, `apps_left` |
+| `button.<kid>_30_min` | **+30 min** for today: adds to every limit and lifts any limit that already kicked in (pauses you set yourself stay) |
+| `family_wifi.extra_time` | Same with any number of minutes: `{target: Alex, minutes: 15}` |
+| Event `family_wifi_limit_warning` | 10 minutes left (`target`, `minutes_left`) |
+| Event `family_wifi_limit_reached` | Limit used up (`target`, `limit`, `app`, `message`). A Home Assistant notification is shown too |
+
+Send yourself a phone notification when a limit is reached:
+
+```yaml
+automation:
+  - alias: Family WiFi limit reached
+    triggers:
+      - trigger: event
+        event_type: family_wifi_limit_reached
+    actions:
+      - action: notify.mobile_app_your_phone
+        data:
+          message: "{{ trigger.event.data.message }}"
+```
+
+Limits reset at midnight. Screen time is an estimate (see below), so pick limits with a little slack.
 
 ### Usage: online, data used, top apps
 

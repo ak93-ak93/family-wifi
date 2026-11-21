@@ -24,6 +24,8 @@ const path = require('path');
   await shot('panel.png');
   await root.locator('.panel button[data-act="apply"]').click();
   await root.locator('button[data-act="restore"][data-target="Sam"]').click();
+  await root.locator('button[data-act="extra"][data-target="Sam"]').click();
+  const alexHasExtra = await root.locator('button[data-act="extra"][data-target="Alex"]').count();
   await p.waitForTimeout(100);
   const calls = await p.evaluate(() => window.calls);
   const toasts = await p.evaluate(() => window.toasts);
@@ -34,8 +36,9 @@ const path = require('path');
     ['switch', 'turn_on', { entity_id: 'switch.sam_internet' }],
     ['family_wifi', 'block_websites', { target: 'Alex', websites: 'Video', duration: 'until 7am' }],
     ['family_wifi', 'restore', { target: 'Sam' }],
+    ['button', 'press', { entity_id: 'button.sam_30_min' }],
   ];
-  const ok = JSON.stringify(calls) === JSON.stringify(expected) && errors.length === 0 && names.join() === 'Alex,Sam';
+  const ok = JSON.stringify(calls) === JSON.stringify(expected) && errors.length === 0 && names.join() === 'Alex,Sam' && alexHasExtra === 0;
   console.log(JSON.stringify({ ok, names, calls, toasts, errors }, null, 1));
   await b.close();
   process.exit(ok ? 0 : 1);

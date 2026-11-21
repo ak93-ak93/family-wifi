@@ -45,7 +45,8 @@
           "group": "Add or edit a kid or group",
           "remove_group": "Remove a kid or group",
           "websites": "Website lists",
-          "speeds": "Slow-down speeds"
+          "speeds": "Slow-down speeds",
+          "limits": "Daily limits"
         }
       },
       "group": {
@@ -89,6 +90,21 @@
         "data": {
           "speeds": "Speeds"
         }
+      },
+      "limits": {
+        "title": "Daily limits",
+        "data": {
+          "kid": "Whose limits?"
+        }
+      },
+      "limits_edit": {
+        "title": "Daily limits for {kid}",
+        "description": "Screen time is estimated from network use. When a limit is used up, the kid is paused or slowed (screen time) or has a website list blocked (apps) until 7am. '+30 min' lifts it for today.\n\nApp limits, one per line: App = minutes, optional website list to block instead of pausing. Example: Youtube = 60, Video\nWebsite lists: {lists}",
+        "data": {
+          "screen_minutes": "Daily screen time (0 = no limit)",
+          "action": "When screen time runs out",
+          "apps": "App limits"
+        }
       }
     },
     "error": {
@@ -96,7 +112,8 @@
       "name_taken": "That name is already used.",
       "pick_devices": "Pick at least one device.",
       "bad_domains": "Enter domains like youtube.com, one per line.",
-      "bad_speeds": "Use lines like: Slow = 1000/500"
+      "bad_speeds": "Use lines like: Slow = 1000/500",
+      "bad_apps": "Use lines like: Youtube = 60, Video (the website list must exist)."
     },
     "abort": {
       "cannot_connect": "Couldn't reach UniFi to list devices."
@@ -132,6 +149,9 @@
       },
       "screen_time": {
         "name": "Screen time today"
+      },
+      "time_left": {
+        "name": "Screen time left"
       }
     },
     "binary_sensor": {
@@ -146,6 +166,16 @@
       "duration": {
         "name": "For how long"
       }
+    },
+    "number": {
+      "daily_limit": {
+        "name": "Daily screen time"
+      }
+    },
+    "button": {
+      "extra_time": {
+        "name": "+30 min"
+      }
     }
   },
   "selector": {
@@ -154,6 +184,12 @@
         "pause": "Pause",
         "slow": "Slow down",
         "sites": "Website blocks"
+      }
+    },
+    "limit_action": {
+      "options": {
+        "pause": "Pause internet until 7am",
+        "slow": "Slow down until 7am"
       }
     }
   },
@@ -225,6 +261,20 @@
     "status": {
       "name": "Status",
       "description": "Returns a summary of what's active and when it ends."
+    },
+    "extra_time": {
+      "name": "Give extra time",
+      "description": "Add minutes to a kid's daily limits for today and lift any limit that already kicked in.",
+      "fields": {
+        "target": {
+          "name": "Who",
+          "description": "Kid or group name."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "How many extra minutes (default 30)."
+        }
+      }
     }
   }
 }

@@ -18,6 +18,7 @@ SIBLINGS = {
     "internet": "switch", "slow_down": "switch", "status": "sensor", "online": "binary_sensor",
     "data_today": "sensor", "screen_time": "sensor", "top_app": "sensor", "download_speed": "sensor",
     "speed_limit": "select", "duration": "select",
+    "daily_limit": "number", "time_left": "sensor", "extra_time": "button",
 }
 
 

@@ -53,7 +53,7 @@ class FamilyWifi:
     # ---------- entry point used by the API ----------
 
     def do(self, action: str, target: str | None = None, duration: str | None = None,
-           option: str | None = None) -> str:
+           option: str | None = None, reason: str = "") -> str:
         key = action_key(action)
         if key == "status":
             return self.status()
@@ -65,22 +65,22 @@ class FamilyWifi:
                 return self.restore(target, kind=option or None)
             until = parse_until(duration, self.now())
             if key == "pause":
-                return self.pause(target, until)
+                return self.pause(target, until, reason=reason)
             if key == "slow":
-                return self.slow(target, until, option)
-            return self.block_sites(target, until, option or "")
+                return self.slow(target, until, option, reason=reason)
+            return self.block_sites(target, until, option or "", reason=reason)
 
     # ---------- actions ----------
 
-    def pause(self, target: str, until: datetime | None) -> str:
+    def pause(self, target: str, until: datetime | None, reason: str = "") -> str:
         macs = self.cfg.resolve(target)
         self._take_over("pause", list(macs))
         for mac in macs:
             self.unifi.block_client(mac)
-        self._record("pause", target, list(macs), until)
+        self._record("pause", target, list(macs), until, reason=reason)
         return f"⏸️ Paused {target} {describe(until, self.now())}."
 
-    def slow(self, target: str, until: datetime | None, speed_name: str | None) -> str:
+    def slow(self, target: str, until: datetime | None, speed_name: str | None, reason: str = "") -> str:
         macs = self.cfg.resolve(target)
         speed = self.cfg.speed(speed_name)
         gid = self.unifi.ensure_usergroup(SLOW_GROUP_PREFIX + speed.name, speed.down_kbps, speed.up_kbps)
@@ -95,16 +95,17 @@ class FamilyWifi:
         for mac in macs:
             before = self.unifi.set_client_usergroup(mac, gid)
             previous[mac] = earlier.get(mac, before)
-        self._record("slow", target, list(macs), until, label=speed.name, undo={"previous": previous})
+        self._record("slow", target, list(macs), until, label=speed.name, undo={"previous": previous}, reason=reason)
         return f"🐢 {target} slowed to {speed.name} {describe(until, self.now())}."
 
-    def block_sites(self, target: str, until: datetime | None, sites: str) -> str:
+    def block_sites(self, target: str, until: datetime | None, sites: str, reason: str = "") -> str:
         if not sites:
             raise ValueError("Pick a website list")
         macs = self.cfg.resolve(target)
         label, domains = self.cfg.sites(sites)
         rule_id = self.unifi.create_domain_block(f"FamilyWiFi: {label} for {target}", domains, list(macs))
-        self._record("sites", target, list(macs), until, label=label, undo={"rule_id": rule_id, "domains": domains})
+        self._record("sites", target, list(macs), until, label=label,
+                     undo={"rule_id": rule_id, "domains": domains}, reason=reason)
         return f"🚫 Blocked {label} on {target} {describe(until, self.now())}."
 
     def restore(self, target: str, kind: str | None = None) -> str:
@@ -151,12 +152,24 @@ class FamilyWifi:
 
     # ---------- helpers ----------
 
-    def _record(self, kind, target, macs, until, label="", undo=None):
+    def _record(self, kind, target, macs, until, label="", undo=None, reason=""):
         self.state.add(Restriction(
             kind=kind, target=target, macs=macs,
             until=until.isoformat() if until else None, label=label,
-            undo=undo or {}, created=self.now().isoformat(),
+            undo=undo or {}, created=self.now().isoformat(), reason=reason,
         ))
+
+    def release_reason(self, target: str, prefix: str) -> list[str]:
+        """Undo restrictions on `target` that were set for a reason starting with `prefix`."""
+        macs = set(self.cfg.resolve(target))
+        undone = []
+        with self.lock:
+            for r in list(self.state.find()):
+                hit = macs & set(r.macs)
+                if hit and r.reason.startswith(prefix):
+                    self._release(r, sorted(hit))
+                    undone.append(r.reason)
+        return undone
 
     def _take_over(self, kind: str, macs: list[str], release: bool = False) -> None:
         """A new pause/slow replaces any older one on the same devices (new timer wins)."""

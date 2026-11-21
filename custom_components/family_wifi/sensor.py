@@ -19,6 +19,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
     for t in targets:
         entities += [DataTodaySensor(entry, t), SpeedSensor(entry, t, "download"),
                      SpeedSensor(entry, t, "upload"), TopAppSensor(entry, t), ScreenTimeSensor(entry, t)]
+    entities += [TimeLeftSensor(entry, t) for t in entry.runtime_data.allowances.targets()]
     async_add_entities(entities)
 
 
@@ -191,4 +192,33 @@ class ScreenTimeSensor(UsageEntity, SensorEntity):
             "first_active": _clock(u.active[0][0]) if u.active else None,
             "last_active": _clock(u.active[-1][1]) if u.active else None,
             "estimate": True,
+        }
+
+
+class TimeLeftSensor(UsageEntity, SensorEntity):
+    """Screen time left today under the kid's daily allowance (unknown when there's no limit)."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_suggested_display_precision = 0
+    _attr_icon = "mdi:timer-sand-complete"
+
+    def __init__(self, entry, target: str) -> None:
+        super().__init__(entry, target, "time_left")
+
+    @property
+    def native_value(self) -> int | None:
+        left = self.hub.allowances.left(self.target)
+        return None if left is None else round(left)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        a = self.hub.allowances
+        used, _ = a.used(self.target)
+        return {
+            "daily_limit": a.config(self.target).get("screen_minutes") or 0,
+            "extra_today": a.bonus(self.target),
+            "used_today": round(used),
+            "when_reached": a.config(self.target).get("action", "pause"),
+            "apps_left": {app: human_duration(m * 60) for app, m in a.apps_left(self.target).items()},
         }

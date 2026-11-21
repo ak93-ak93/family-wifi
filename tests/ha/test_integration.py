@@ -289,3 +289,113 @@ async def test_duration_select_remembered_after_restart(hass, fake_unifi):
     mock_restore_cache(hass, [State("select.alex_for_how_long", "1 hour")])
     await setup(hass)
     assert hass.states.get("select.alex_for_how_long").state == "1 hour"
+
+
+def _fake_usage(entry, mac, screen_min, apps=None):
+    """Pretend `mac` was in use for screen_min minutes today (and per app)."""
+    from custom_components.family_wifi.core.usage import Usage
+
+    end = dt_util.now().timestamp()
+    entry.runtime_data.tracker.devices[mac] = Usage(
+        online=True, active=[(end - screen_min * 60, end)],
+        app_active={a: [(end - m * 60, end)] for a, m in (apps or {}).items()})
+
+
+async def test_daily_screen_time_limit(hass, fake_unifi):
+    from pytest_homeassistant_custom_component.common import async_capture_events
+
+    entry = await setup(hass, {**OPTIONS, "allowances": {"Alex": {"screen_minutes": 120, "action": "pause"}}})
+    warnings = async_capture_events(hass, "family_wifi_limit_warning")
+    reached = async_capture_events(hass, "family_wifi_limit_reached")
+    allow = entry.runtime_data.allowances
+    assert hass.states.get("number.alex_daily_screen_time").state == "120"
+    assert hass.states.get("button.alex_30_min") is not None
+    assert hass.states.get("number.alex_ipad_daily_screen_time") is None  # kids/groups only
+
+    _fake_usage(entry, A, 112)
+    await allow.async_check()
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.alex_screen_time_left").state == "8"
+    assert [e.data["minutes_left"] for e in warnings] == [8]
+    assert fake_unifi.blocked == set()
+
+    _fake_usage(entry, A, 121)
+    await allow.async_check()
+    await hass.async_block_till_done()
+    assert fake_unifi.blocked == {A, B}
+    (r,) = entry.runtime_data.svc.state.find("pause")
+    assert r.reason == "Limit: daily screen time" and dt_util.parse_datetime(r.until).hour == 7
+    assert reached[0].data["target"] == "Alex" and "2 h 00 min" in reached[0].data["message"]
+    assert hass.states.get("sensor.alex_screen_time_left").state == "0"
+    await allow.async_check()  # doesn't fire twice
+    assert len(reached) == 1
+
+    # +30 min: back online, 29 minutes left, and the limit fires again when that's used.
+    await hass.services.async_call("button", "press", {"entity_id": "button.alex_30_min"}, blocking=True)
+    assert fake_unifi.blocked == set()
+    assert hass.states.get("sensor.alex_screen_time_left").state == "29"
+    assert hass.states.get("sensor.alex_screen_time_left").attributes["extra_today"] == 30
+    _fake_usage(entry, A, 151)
+    await allow.async_check()
+    assert fake_unifi.blocked == {A, B} and len(reached) == 2
+
+
+async def test_app_limit_blocks_list_and_extra_time_keeps_manual_pause(hass, fake_unifi):
+    opts = {**OPTIONS, "allowances": {"Sam": {"screen_minutes": 0, "apps": {"Youtube": {"minutes": 60, "block": "Video"}}}}}
+    opts["groups"] = {**OPTIONS["groups"], "Sam": [C]}
+    entry = await setup(hass, opts)
+    allow = entry.runtime_data.allowances
+    assert hass.states.get("sensor.sam_screen_time_left").state == "unknown"  # no screen limit
+
+    _fake_usage(entry, C, 70, {"Youtube": 61})
+    await allow.async_check()
+    (rule,) = fake_unifi.rules.values()
+    assert "youtube.com" in [d["domain"] for d in rule["domains"]]
+    assert hass.states.get("sensor.sam_screen_time_left").attributes["apps_left"] == {"Youtube": "0 min"}
+
+    # A pause the parent set by hand is not lifted by extra time.
+    await hass.services.async_call(DOMAIN, "pause", {"target": "Sam", "duration": "1 hour"}, blocking=True)
+    resp = await hass.services.async_call(DOMAIN, "extra_time", {"target": "sam", "minutes": 15},
+                                          blocking=True, return_response=True)
+    assert resp["message"] == "⏱️ Sam got 15 more minutes today and is back online."
+    assert fake_unifi.rules == {}
+    assert fake_unifi.blocked == {C}
+    assert hass.states.get("sensor.sam_screen_time_left").attributes["apps_left"] == {"Youtube": "14 min"}
+
+
+async def test_daily_limit_number_and_options(hass, fake_unifi):
+    entry = await setup(hass)
+    await hass.services.async_call("number", "set_value",
+                                   {"entity_id": "number.kids_daily_screen_time", "value": 180}, blocking=True)
+    assert entry.options["allowances"]["Kids"]["screen_minutes"] == 180
+    assert hass.states.get("number.kids_daily_screen_time").state == "180"
+    assert hass.states.get("sensor.kids_screen_time_left").state == "180"
+
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "limits" in flow["menu_options"]
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "limits"})
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"kid": "Alex"})
+    assert flow["step_id"] == "limits_edit"
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"screen_minutes": 90, "action": "slow", "apps": "Youtube = 45, NoSuchList"})
+    assert flow["errors"] == {"apps": "bad_apps"}
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"screen_minutes": 90, "action": "slow", "apps": "Youtube = 45, video\nRoblox Game = 30"})
+    assert flow["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["allowances"]["Alex"] == {
+        "screen_minutes": 90, "action": "slow",
+        "apps": {"Youtube": {"minutes": 45, "block": "Video"}, "Roblox Game": {"minutes": 30, "block": ""}}}
+    assert entry.options["allowances"]["Kids"]["screen_minutes"] == 180  # untouched
+
+
+async def test_allowances_checked_after_each_usage_poll(hass, fake_unifi, freezer):
+    from unittest.mock import AsyncMock
+
+    entry = await setup(hass)
+    check = AsyncMock()
+    entry.runtime_data.allowances.async_check = check
+    freezer.tick(timedelta(minutes=3))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert check.await_count == 1

@@ -123,6 +123,9 @@ class FamilyWifiCard extends HTMLElement {
       this._toast(on ? `⏸️ Paused ${target}` : `✅ ${target} is back online`);
     } else if (act === "pause") {
       this._call("pause", { target, duration: value }, `⏸️ Paused ${target} (${value})`);
+    } else if (act === "extra") {
+      this._hass.callService("button", "press", { entity_id: ent.extra_time });
+      this._toast(`⏱️ ${target} got 30 more minutes`);
     } else if (act === "restore") {
       this._call("restore", { target }, `✅ Restored ${target}`);
     } else if (act === "open") {
@@ -178,6 +181,9 @@ class FamilyWifiCard extends HTMLElement {
       .map(([n, amount]) => `<span class="app">${esc(n)} <b>${esc(times[n] || amount)}</b></span>`)
       .join("");
     const p = this._panel?.target === name ? this._panel : null;
+    const leftSt = this._st(e.time_left);
+    const limited = leftSt && !["unknown", "unavailable"].includes(leftSt.state);
+    const left = limited ? Number(leftSt.state) : null;
     const t = esc(name);
     return `
       <div class="kid">
@@ -195,7 +201,9 @@ class FamilyWifiCard extends HTMLElement {
         <div class="stats">
           <div><span>Screen time</span><b>${esc(this._fmt(e.screen_time))}</b></div>
           <div><span>Data today</span><b>${esc(this._fmt(e.data_today))}</b></div>
-          <div><span>Speed now</span><b>${esc(this._fmt(e.download_speed))}</b></div>
+          ${limited
+            ? `<div class="${left === 0 ? "out" : ""}"><span>Left today</span><b>${esc(this._fmt(e.time_left))}</b></div>`
+            : `<div><span>Speed now</span><b>${esc(this._fmt(e.download_speed))}</b></div>`}
         </div>
         ${apps ? `<div class="apps">${apps}</div>` : ""}
         <div class="actions">
@@ -203,6 +211,7 @@ class FamilyWifiCard extends HTMLElement {
           <button data-act="open" data-target="${t}" data-value="slow" class="${p?.mode === "slow" ? "sel" : ""}">🐢 Slow…</button>
           <button data-act="open" data-target="${t}" data-value="sites" class="${p?.mode === "sites" ? "sel" : ""}">🚫 Block…</button>
           <button data-act="restore" data-target="${t}" class="restore">↺ Restore</button>
+          ${limited && e.extra_time ? `<button data-act="extra" data-target="${t}" class="extra">⏱️ +30 min</button>` : ""}
         </div>
         ${p ? this._panelView(p) : ""}
       </div>`;
@@ -263,7 +272,9 @@ const CSS = `
   .app { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--divider-color); }
   .app b { color: var(--primary-text-color); font-weight: 500; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  .actions .restore { color: var(--primary-color); }
+  .actions .restore, .actions .extra { color: var(--primary-color); }
+  .stats div.out { background: rgba(219, 68, 55, .15); }
+  .stats div.out b { color: var(--error-color, #db4437); }
   .panel { margin-top: 10px; padding: 10px; border-radius: 12px; background: var(--secondary-background-color); }
   .lab { font-size: .75rem; color: var(--secondary-text-color); margin: 4px 0; text-transform: uppercase; letter-spacing: .04em; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }

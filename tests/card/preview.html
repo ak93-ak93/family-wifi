@@ -18,7 +18,8 @@
 const later = (h) => new Date(Date.now() + h * 3600e3).toISOString();
 const ents = (n) => ({ internet: `switch.${n}_internet`, slow_down: `switch.${n}_slow_down`, status: `sensor.${n}_status`,
   online: `binary_sensor.${n}_online`, data_today: `sensor.${n}_data_used_today`, screen_time: `sensor.${n}_screen_time_today`,
-  top_app: `sensor.${n}_top_app_today`, download_speed: `sensor.${n}_download_speed` });
+  top_app: `sensor.${n}_top_app_today`, download_speed: `sensor.${n}_download_speed`,
+  time_left: `sensor.${n}_screen_time_left`, extra_time: `button.${n}_30_min`, daily_limit: `number.${n}_daily_screen_time` });
 const st = (entity_id, state, attributes = {}) => ({ entity_id, state, attributes });
 const states = {};
 const add = (s) => (states[s.entity_id] = s);
@@ -34,9 +35,11 @@ add(st("sensor.alex_data_used_today", "1840", { unit_of_measurement: "MB" }));
 add(st("sensor.alex_download_speed", "6.4", { unit_of_measurement: "Mbit/s" }));
 add(st("sensor.alex_top_app_today", "Youtube", { apps: { Youtube: "1.2 GB", "Roblox Game": "210 MB", Instagram: "95 MB" },
   app_time: { Youtube: "1 h 20 min", "Roblox Game": "35 min", Instagram: "12 min" } }));
-// Sam: paused until 7am, offline
+add(st("sensor.alex_screen_time_left", "unknown", { unit_of_measurement: "min" }));
+// Sam: used up the daily limit, paused until 7am, offline
 add(st("sensor.sam_status", "Paused", { family_wifi_target: "Sam", is_group: true, devices: ["Sam iPhone"], entities: ents("sam"),
   restrictions: [{ what: "Pause internet", who: "Sam", detail: null, ends_at: later(9) }] }));
+add(st("sensor.sam_screen_time_left", "0", { unit_of_measurement: "min" }));
 add(st("switch.sam_internet", "off")); add(st("binary_sensor.sam_online", "off"));
 add(st("sensor.sam_screen_time_today", "48", { unit_of_measurement: "min" }));
 add(st("sensor.sam_data_used_today", "412", { unit_of_measurement: "MB" }));

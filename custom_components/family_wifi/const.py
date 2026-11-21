@@ -10,7 +10,8 @@ CONF_VERIFY_SSL = "verify_ssl"
 OPT_GROUPS = "groups"  # {"Kids": ["aa:bb:..", ...]}
 OPT_NAMES = "names"  # {"aa:bb:..": "Alex iPad"}
 OPT_SITE_LISTS = "site_lists"  # {"Games": ["roblox.com", ...]}
-OPT_SPEEDS = "speeds"  # [{"name": ..., "down_kbps": ..., "up_kbps": ...}]
+OPT_SPEEDS = "speeds"
+OPT_ALLOWANCES = "allowances"  # {"Alex": {"screen_minutes": 180, "action": "pause", "apps": {...}}}  # [{"name": ..., "down_kbps": ..., "up_kbps": ...}]
 
 DEFAULT_SITE_LISTS = {
     "Games": ["roblox.com", "fortnite.com", "epicgames.com", "minecraft.net"],

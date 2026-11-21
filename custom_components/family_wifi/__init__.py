@@ -37,10 +37,11 @@ from .core.config import Config, SpeedPreset, UnifiConfig, normalize_mac
 from .core.service import FamilyWifi
 from .core.state import State
 from .core.unifi import UnifiClient, UnifiError
+from .allowance import Allowances
 from .core.usage import Usage, UsageTracker
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 USAGE_INTERVAL = timedelta(minutes=2)
 TICK = timedelta(seconds=15)
 
@@ -54,6 +55,7 @@ class Hub:
     # Per kid: how long switches apply for, and which speed "Slow down" uses (set by the select entities).
     durations: dict[str, str] = field(default_factory=dict)
     speeds: dict[str, str] = field(default_factory=dict)
+    allowances: Allowances | None = None
 
     def duration(self, target: str) -> str:
         return self.durations.get(target, "until I undo")
@@ -137,6 +139,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: FamilyWifiConfigEntry) -
         update_method=_poll_usage, update_interval=USAGE_INTERVAL,
     )
     entry.runtime_data = Hub(cfg, svc, usage, tracker)
+    allowances = Allowances(hass, entry)
+    await allowances.async_load()
+    entry.runtime_data.allowances = allowances
+
+    def _after_usage() -> None:
+        if usage.last_update_success:
+            entry.async_create_background_task(hass, allowances.async_check(), f"{DOMAIN} allowances")
+
+    entry.async_on_unload(usage.async_add_listener(_after_usage))
     # Usage problems must never block the parental controls, so don't fail setup on them.
     await usage.async_refresh()
 
@@ -172,17 +183,18 @@ SERVICES = {
     "block_websites": ("sites", vol.Schema({TARGET: cv.string, DURATION: cv.string, vol.Required("websites"): cv.string})),
     "restore": ("restore", vol.Schema({TARGET: cv.string, vol.Optional("only"): vol.In(["pause", "slow", "sites"])})),
     "status": ("status", vol.Schema({})),
+    "extra_time": ("extra_time", vol.Schema({TARGET: cv.string, vol.Optional("minutes", default=30): vol.All(int, vol.Range(min=1, max=720))})),
 }
 
 
 async def run_action(hass: HomeAssistant, action: str, target: str | None = None,
-                     duration: str | None = None, option: str | None = None) -> str:
+                     duration: str | None = None, option: str | None = None, reason: str = "") -> str:
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
     if not entries:
         raise HomeAssistantError("Family WiFi isn't set up or can't reach UniFi right now")
     svc: FamilyWifi = entries[0].runtime_data.svc
     try:
-        msg = await hass.async_add_executor_job(svc.do, action, target, duration, option)
+        msg = await hass.async_add_executor_job(svc.do, action, target, duration, option, reason)
     except (KeyError, ValueError) as err:
         raise ServiceValidationError(str(err).strip("'\"")) from err
     except (UnifiError, httpx.HTTPError) as err:
@@ -210,6 +222,21 @@ async def _register_card(hass: HomeAssistant) -> None:
     add_extra_js_url(hass, f"{CARD_URL}?v={version}")
 
 
+async def _extra_time(hass: HomeAssistant, target: str, minutes: int) -> str:
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    if not entries:
+        raise HomeAssistantError("Family WiFi isn't set up or can't reach UniFi right now")
+    hub: Hub = entries[0].runtime_data
+    try:
+        target = hub.cfg.canonical(target)
+    except KeyError as err:
+        raise ServiceValidationError(str(err).strip("'\"")) from err
+    try:
+        return await hub.allowances.async_grant(target, minutes)
+    except (UnifiError, httpx.HTTPError) as err:
+        raise HomeAssistantError(f"UniFi said: {err}") from err
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     try:
         await _register_card(hass)
@@ -219,6 +246,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         async def handle(call: ServiceCall, action=action) -> ServiceResponse:
             d = call.data
+            if action == "extra_time":
+                return {"message": await _extra_time(hass, d["target"], d["minutes"])}
             option = d.get("speed") or d.get("websites") or d.get("only")
             msg = await run_action(hass, action, d.get("target"), d.get("duration"), option)
             return {"message": msg}
