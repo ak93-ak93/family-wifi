@@ -1,0 +1,184 @@
+import json
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from family_wifi.app import create_app
+from family_wifi.config import Config, SpeedPreset, UnifiConfig
+from family_wifi.durations import parse_until
+from family_wifi.service import FamilyWifi
+from family_wifi.state import State
+from family_wifi.unifi import UnifiClient
+
+TZ = ZoneInfo("America/Los_Angeles")
+A, B, C = "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"
+
+
+class FakeUnifi:
+    """Just enough of a UniFi OS console to exercise the client."""
+
+    def __init__(self):
+        self.blocked = set()
+        self.groups = [{"_id": "g-default", "name": "Default", "attr_no_delete": True,
+                        "qos_rate_max_down": -1, "qos_rate_max_up": -1}]
+        self.users = {m: {"_id": f"u-{m[-2:]}", "mac": m, "usergroup_id": ""} for m in (A, B, C)}
+        self.rules = {}
+        self.calls = []
+
+    def __call__(self, req: httpx.Request) -> httpx.Response:
+        p, m = req.url.path, req.method
+        body = json.loads(req.content) if req.content else None
+        self.calls.append((m, p, body))
+        ok = lambda data: httpx.Response(200, json={"meta": {"rc": "ok"}, "data": data})
+        if p == "/":
+            return httpx.Response(200, text="unifi os")
+        if p == "/api/auth/login":
+            return httpx.Response(200, json={}, headers={"x-csrf-token": "csrf"})
+        assert req.headers.get("x-csrf-token") == "csrf"
+        base, v2 = "/proxy/network/api/s/default", "/proxy/network/v2/api/site/default"
+        if p == base + "/cmd/stamgr":
+            if body["cmd"] == "block-sta":
+                self.blocked.add(body["mac"])
+            elif body["cmd"] == "unblock-sta":
+                self.blocked.discard(body["mac"])
+            return ok([])
+        if p == base + "/stat/sta":
+            return ok([{"mac": A}])
+        if p.startswith(base + "/stat/user/"):
+            u = self.users.get(p.rsplit("/", 1)[1])
+            return ok([u] if u else [])
+        if p == base + "/rest/usergroup" and m == "GET":
+            return ok(self.groups)
+        if p == base + "/rest/usergroup" and m == "POST":
+            g = {"_id": f"g{len(self.groups)}", **body}
+            self.groups.append(g)
+            return ok([g])
+        if p.startswith(base + "/rest/usergroup/"):
+            return ok([body])
+        if p.startswith(base + "/rest/user/"):
+            uid = p.rsplit("/", 1)[1]
+            next(u for u in self.users.values() if u["_id"] == uid)["usergroup_id"] = body["usergroup_id"]
+            return ok([])
+        if p == v2 + "/trafficrules" and m == "POST":
+            rid = f"r{len(self.rules) + 1}"
+            self.rules[rid] = {"_id": rid, **body}
+            return httpx.Response(201, json=self.rules[rid])
+        if p.startswith(v2 + "/trafficrules/") and m == "DELETE":
+            self.rules.pop(p.rsplit("/", 1)[1], None)
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404, json={"meta": {"rc": "error", "msg": "not found"}})
+
+
+@pytest.fixture
+def env(tmp_path):
+    cfg = Config(
+        unifi=UnifiConfig(url="https://udm", username="u", password="p"),
+        api_token="secret",
+        timezone="America/Los_Angeles",
+        devices={"Alex iPad": [A], "Alex Switch": [B], "Sam iPhone": [C]},
+        groups={"Kids": ["Alex iPad", "Alex Switch", "Sam iPhone"], "Alex": ["Alex iPad", "Alex Switch"]},
+        site_lists={"Games": ["roblox.com", "fortnite.com"]},
+        speeds=[SpeedPreset("Slow (1 Mbps)", 1000, 500)],
+        state_file=str(tmp_path / "state.json"),
+    )
+    fake = FakeUnifi()
+    svc = FamilyWifi(cfg, UnifiClient(cfg.unifi, transport=httpx.MockTransport(fake)), State(cfg.state_file))
+    return cfg, fake, svc
+
+
+def test_pause_and_timer_expiry(env):
+    cfg, fake, svc = env
+    msg = svc.do("pause", "kids", "30 min")
+    assert "Paused Kids for 30 min" in msg
+    assert fake.blocked == {A, B, C}
+    # Fast-forward: make the timer due.
+    r = svc.state.find("pause")[0]
+    r.until = (svc.now() - timedelta(seconds=1)).isoformat()
+    svc.expire()
+    assert fake.blocked == set()
+    assert svc.state.find() == []
+
+
+def test_new_pause_replaces_old_timer_and_restore_subset(env):
+    cfg, fake, svc = env
+    svc.do("pause", "Kids", "until I undo")
+    svc.do("pause", "Alex", "1 hour")
+    assert len(svc.state.find("pause")) == 2
+    assert svc.state.find("pause", A)[0].target == "Alex"
+    msg = svc.do("restore", "Sam iPhone")
+    assert "Restored" in msg
+    assert fake.blocked == {A, B}
+    svc.do("restore", "Alex")
+    assert fake.blocked == set() and svc.state.find() == []
+
+
+def test_slow_down_and_restore_previous_group(env):
+    cfg, fake, svc = env
+    fake.users[A]["usergroup_id"] = "g-default"
+    svc.do("🐢 Slow down", "Alex iPad", "2h", option="Slow (1 Mbps)")
+    slow_group = next(g for g in fake.groups if g["name"] == "FamilyWiFi Slow (1 Mbps)")
+    assert slow_group["qos_rate_max_down"] == 1000
+    assert fake.users[A]["usergroup_id"] == slow_group["_id"]
+    # Slowing again must still remember the original group.
+    svc.do("slow", "Alex iPad", "30m")
+    assert any(c[2] == {"cmd": "kick-sta", "mac": A} for c in fake.calls)
+    svc.do("restore", "Alex iPad")
+    assert fake.users[A]["usergroup_id"] == "g-default"
+
+
+def test_block_sites_rule_payload_and_partial_restore(env):
+    cfg, fake, svc = env
+    svc.do("Block websites", "Alex", "until 7am", option="Games")
+    (rule,) = fake.rules.values()
+    assert rule["action"] == "BLOCK" and rule["matching_target"] == "DOMAIN"
+    assert [d["domain"] for d in rule["domains"]] == ["roblox.com", "fortnite.com"]
+    assert {t["client_mac"] for t in rule["target_devices"]} == {A, B}
+    svc.do("restore", "Alex Switch")
+    (rule,) = fake.rules.values()  # recreated for the remaining device only
+    assert [t["client_mac"] for t in rule["target_devices"]] == [A]
+    svc.do("restore", "Alex iPad")
+    assert fake.rules == {}
+
+
+def test_adhoc_domains(env):
+    _, fake, svc = env
+    svc.do("sites", "Sam iPhone", "15", option="youtube.com, tiktok.com")
+    (rule,) = fake.rules.values()
+    assert [d["domain"] for d in rule["domains"]] == ["youtube.com", "tiktok.com"]
+
+
+def test_state_survives_restart(env):
+    cfg, fake, svc = env
+    svc.do("pause", "Sam iPhone", "1h")
+    again = FamilyWifi(cfg, svc.unifi, State(cfg.state_file))
+    assert "Sam iPhone" in again.status()
+
+
+def test_durations():
+    now = datetime(2026, 11, 21, 20, 0, tzinfo=TZ)
+    assert parse_until("30 min", now) == now + timedelta(minutes=30)
+    assert parse_until("1 hour 30 min", now) == now + timedelta(minutes=90)
+    assert parse_until("45", now) == now + timedelta(minutes=45)
+    assert parse_until("until 7am", now) == datetime(2026, 11, 22, 7, 0, tzinfo=TZ)
+    assert parse_until("9:30 pm", now) == datetime(2026, 11, 21, 21, 30, tzinfo=TZ)
+    assert parse_until("until I undo", now) is None
+    with pytest.raises(ValueError):
+        parse_until("whenever", now)
+
+
+def test_http_api(env):
+    cfg, fake, svc = env
+    client = TestClient(create_app(cfg, svc))
+    assert client.get("/menu").status_code == 401
+    h = {"Authorization": "Bearer secret"}
+    menu = client.get("/menu", headers=h).json()
+    assert menu["targets"][:2] == ["Kids", "Alex"]
+    r = client.post("/do", headers=h, json={"action": "⏸️ Pause internet", "target": "Kids", "duration": "15 min"})
+    assert r.status_code == 200 and "Paused" in r.json()["message"]
+    assert "Kids" in client.get("/status", headers=h).json()["message"]
+    r = client.post("/do", headers=h, json={"action": "pause", "target": "Nobody", "duration": "15 min"})
+    assert r.status_code == 400 and "Unknown device" in r.json()["detail"]
+    assert "Family WiFi" in client.get("/").text
