@@ -43,6 +43,10 @@ type **Integration** → find **Family WiFi** → Download → restart Home Assi
 **Manual:** copy `custom_components/family_wifi` into your Home Assistant `config/custom_components/` folder
 and restart.
 
+**Updates:** each new version is published as a GitHub release. HACS picks it up and it appears in
+Home Assistant under **Settings → Updates** with release notes, where you install it with one click.
+Restart Home Assistant afterwards.
+
 Then: **Settings → Devices & services → Add integration → Family WiFi**, and enter your console address plus an API key
 and/or a local UniFi account (see [step 1](#1-prepare-unifi)).
 
@@ -335,6 +339,9 @@ Tests run against a fake UniFi console (`tests/fake_unifi.py`), so no hardware i
 The UniFi logic lives in `family_wifi/` and is copied into `custom_components/family_wifi/core/`
 (Home Assistant integrations must be self-contained). After changing it, run `python scripts/sync_core.py`;
 a test fails if the copies differ.
+
+**Releasing:** bump `version` in `custom_components/family_wifi/manifest.json` and merge to `main`.
+The Release workflow publishes `v<version>` automatically.
 
 ## Compatibility notes
 
