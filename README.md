@@ -15,8 +15,13 @@ One-tap parental controls for a **UniFi** home network, run from an **iPhone Sho
                                        UniFi console (UDM / UDR / UCG / Cloud Key)
 ```
 
-UniFi has no simple phone-friendly API for this, so a small service runs at home and
-talks to the console's local API. The Shortcut talks to that service.
+UniFi has no simple phone-friendly API for this, so something at home has to talk to the
+console's local API. Pick one:
+
+- **Home Assistant user?** Install the [Home Assistant integration](#home-assistant-integration).
+  No extra server needed; you get switches, sensors, automations and dashboard controls.
+- **No Home Assistant?** Run the small [standalone server](#2-run-the-service-at-home) and use the
+  iPhone Shortcut or the built-in web page.
 
 ## How each control works in UniFi
 
@@ -25,6 +30,84 @@ talks to the console's local API. The Shortcut talks to that service.
 | Pause | Client **block** (`cmd/stamgr block-sta`) | Works for Wi-Fi and wired. Fully offline until unblocked. |
 | Slow down | **Bandwidth profile** (user group) with a speed cap; device is assigned to it and reconnected | The app creates profiles named `FamilyWiFi …`. Restore puts the device back in its previous profile. |
 | Block websites | **Traffic rule** (Network 7.x+), action Block, target Domain, limited to the chosen devices | Domain blocking needs the kids' devices to use the UniFi gateway for DNS. It won't work if a device uses its own DNS, iCloud Private Relay or a VPN. |
+
+## Home Assistant integration
+
+Adds Family WiFi to Home Assistant (2025.8 or newer). It talks to UniFi directly.
+
+### Install
+
+**HACS (recommended):** HACS → ⋮ → **Custom repositories** → add `https://github.com/ak93-ak93/family-wifi`,
+type **Integration** → find **Family WiFi** → Download → restart Home Assistant.
+
+**Manual:** copy `custom_components/family_wifi` into your Home Assistant `config/custom_components/` folder
+and restart.
+
+Then: **Settings → Devices & services → Add integration → Family WiFi**, and enter your console address and the
+local UniFi account from [step 1](#1-prepare-unifi).
+
+### Set up kids and groups
+
+**Settings → Devices & services → Family WiFi → Configure**:
+
+- **Add or edit a kid or group**: give it a name ("Alex", "Kids") and pick devices from the list of
+  everything UniFi has seen. Each name becomes a device in Home Assistant.
+- **Website lists**: edit Games / Video / Social or add your own, one domain per line.
+- **Slow-down speeds**: one per line, `Name = download/upload` in kbps.
+
+### What you get
+
+For each kid, group and device:
+
+| Entity | What it does |
+|---|---|
+| `switch.<name>_internet` | Turn **off** to pause the internet; turn **on** to restore it |
+| `switch.<name>_slow_down` | Turn **on** to limit speed (first speed preset) |
+| `sensor.<name>_status` | `Normal`, `Paused`, `Slowed`, `Websites blocked`; attributes list each restriction and when it ends |
+
+Plus `sensor.family_wifi_active_restrictions` (count, with a readable `summary` attribute).
+
+### Actions (with timers)
+
+| Action | Fields |
+|---|---|
+| `family_wifi.pause` | `target`, `duration` |
+| `family_wifi.slow_down` | `target`, `duration`, `speed` (optional) |
+| `family_wifi.block_websites` | `target`, `websites` (list name or `a.com, b.com`), `duration` |
+| `family_wifi.restore` | `target`, `only` (optional: `pause` / `slow` / `sites`) |
+| `family_wifi.status` | returns `{message}` |
+
+All return `{message: "⏸️ Paused Kids for 30 min (until 8:15 PM)."}` when called with a response.
+`duration` takes the same text as everywhere else: `30 min`, `2 hours`, `until 7am`, `until I undo`.
+
+```yaml
+# Weeknight bedtime
+automation:
+  - alias: Kids bedtime
+    triggers:
+      - trigger: time
+        at: "21:00:00"
+    conditions:
+      - condition: time
+        weekday: [sun, mon, tue, wed, thu]
+    actions:
+      - action: family_wifi.pause
+        data: {target: Kids, duration: until 7am}
+
+# A script you can run from the dashboard, Siri or an iPhone Shortcut
+script:
+  kids_homework_mode:
+    alias: Homework mode
+    sequence:
+      - action: family_wifi.block_websites
+        data: {target: Kids, websites: Games, duration: 2 hours}
+      - action: family_wifi.slow_down
+        data: {target: Kids, speed: "Homework (5 Mbps)", duration: 2 hours}
+```
+
+**From your iPhone:** the Home Assistant Companion app adds Shortcuts actions, including running a script or
+performing an action. Siri can run them, and they work away from home through Home Assistant's remote access,
+with no VPN needed. Dashboard tiles for the `Internet` switches give you one-tap pause and resume.
 
 ## 1. Prepare UniFi
 
@@ -142,11 +225,16 @@ Website blocks stack. Timers are checked every 15 seconds and caught up on start
 ## Development
 
 ```bash
-pip install -r requirements.txt pytest
+pip install -r requirements.txt pytest pytest-homeassistant-custom-component
 python -m pytest
 ```
 
-Tests run against a fake UniFi console (`tests/test_family_wifi.py`), so no hardware is needed.
+Tests run against a fake UniFi console (`tests/fake_unifi.py`), so no hardware is needed.
+`tests/ha/` tests the Home Assistant integration and is skipped if its test package isn't installed.
+
+The UniFi logic lives in `family_wifi/` and is copied into `custom_components/family_wifi/core/`
+(Home Assistant integrations must be self-contained). After changing it, run `python scripts/sync_core.py`;
+a test fails if the copies differ.
 
 ## Compatibility notes
 

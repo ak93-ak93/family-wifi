@@ -94,6 +94,10 @@ class UnifiClient:
     def online_clients(self) -> list[dict]:
         return self.request("GET", "/stat/sta") or []
 
+    def all_clients(self) -> list[dict]:
+        """Every client UniFi has ever seen, with its name if one was set."""
+        return self.request("GET", "/rest/user") or []
+
     def known_client(self, mac: str) -> dict | None:
         data = self.request("GET", f"/stat/user/{mac}") or []
         return data[0] if data else None
