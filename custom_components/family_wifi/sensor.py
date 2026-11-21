@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.const import UnitOfDataRate, UnitOfInformation
+from homeassistant.const import UnitOfDataRate, UnitOfInformation, UnitOfTime
+from homeassistant.util import dt as dt_util
 
 from .core.service import ACTIONS
-from .core.usage import human_bytes
+from .core.usage import human_bytes, human_duration
 from .entity import FamilyWifiEntity, UsageEntity
 
 KIND_WORD = {"pause": "Paused", "slow": "Slowed", "sites": "Websites blocked"}
@@ -17,7 +18,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
     entities = [StatusSensor(entry, t) for t in targets] + [ActiveSensor(entry)]
     for t in targets:
         entities += [DataTodaySensor(entry, t), SpeedSensor(entry, t, "download"),
-                     SpeedSensor(entry, t, "upload"), TopAppSensor(entry, t)]
+                     SpeedSensor(entry, t, "upload"), TopAppSensor(entry, t), ScreenTimeSensor(entry, t)]
     async_add_entities(entities)
 
 
@@ -129,12 +130,51 @@ class TopAppSensor(UsageEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         top = self.usage.top_apps(10)
+        u = self.usage
         return {
             "apps": {name: human_bytes(b) for name, b in top},
             "apps_mb": {name: round(b / 1e6, 1) for name, b in top},
+            "app_time": {name: human_duration(t) for name, t in u.app_times()},
             "traffic_identification": {True: "on", False: "off in UniFi", None: "unknown"}[self.hub.tracker.dpi_available],
         }
 
     @property
     def available(self) -> bool:
         return super().available and self.hub.tracker.dpi_available is not False
+
+
+def _clock(ts: float) -> str:
+    return dt_util.as_local(dt_util.utc_from_timestamp(ts)).strftime("%H:%M")
+
+
+class ScreenTimeSensor(UsageEntity, SensorEntity):
+    """Estimated time in use today, worked out from data flow (not measured on the device).
+
+    Attributes give minutes per app, e.g. app_minutes: {"Youtube": 65}, for automations.
+    """
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_suggested_display_precision = 0
+    _attr_icon = "mdi:timer-sand"
+
+    def __init__(self, entry, target: str) -> None:
+        super().__init__(entry, target, "screen_time")
+
+    @property
+    def native_value(self) -> int:
+        return round(self.usage.active_seconds / 60)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        u = self.usage
+        times = u.app_times(10)
+        return {
+            "screen_time": human_duration(u.active_seconds),
+            "app_time": {name: human_duration(t) for name, t in times},
+            "app_minutes": {name: round(t / 60) for name, t in times},
+            "first_active": _clock(u.active[0][0]) if u.active else None,
+            "last_active": _clock(u.active[-1][1]) if u.active else None,
+            "estimate": True,
+        }

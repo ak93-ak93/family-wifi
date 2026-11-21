@@ -170,7 +170,7 @@ async def test_bad_api_key_starts_reauth(hass, fake_unifi):
     assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
 
 
-async def test_usage_entities(hass, fake_unifi):
+async def test_usage_entities(hass, fake_unifi, freezer):
     now = dt_util.now()
     hour_ms = int(now.replace(minute=0, second=0, microsecond=0).timestamp() * 1000)
     fake_unifi.reports["5minutes"][A] = [{"time": hour_ms, "rx_bytes": 5_000_000, "tx_bytes": 300_000_000}]
@@ -187,12 +187,19 @@ async def test_usage_entities(hass, fake_unifi):
 
     # Two minutes later, 200 MB more YouTube.
     fake_unifi.dpi[A] = [{"cat": 4, "app": 112, "rx_bytes": 0, "tx_bytes": 300_000_000}]
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=3))
+    freezer.tick(timedelta(minutes=3))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
     top = hass.states.get("sensor.kids_top_app_today")
     assert top.state == "Youtube"
     assert top.attributes["apps"] == {"Youtube": "200.0 MB"}
     assert top.attributes["traffic_identification"] == "on"
+    # 200 MB in ~3 min is far above the video threshold: counted as watching.
+    screen = hass.states.get("sensor.alex_screen_time_today")
+    assert screen.attributes["unit_of_measurement"] == "min"
+    assert screen.attributes["app_minutes"] == {"Youtube": 3}
+    assert screen.attributes["app_time"] == {"Youtube": "3 min"}
+    assert top.attributes["app_time"] == {"Youtube": "3 min"}
 
 
 async def test_usage_failure_does_not_break_controls(hass, fake_unifi):

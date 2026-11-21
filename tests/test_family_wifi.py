@@ -225,7 +225,7 @@ def test_usage_tracker(tmp_path):
     t2 = UsageTracker(_client(fake, api_key="good-key"), str(tmp_path / "usage.json"))
     fake.dpi[A] = [{**youtube, "rx_bytes": 2_000, "tx_bytes": 450_000_000}]
     assert t2.poll([A], now + timedelta(minutes=4))[A].apps["Youtube"] == 350_001_000
-    assert t2.poll([A], now + timedelta(days=1))[A].apps == {"Youtube": 0}
+    assert t2.poll([A], now + timedelta(days=1))[A].apps == {}
 
 
 def test_usage_without_dpi_or_reports(tmp_path):
@@ -236,3 +236,43 @@ def test_usage_without_dpi_or_reports(tmp_path):
     t = UsageTracker(_client(fake, api_key="good-key"), str(tmp_path / "usage.json"))
     u = t.poll([A], datetime(2026, 11, 21, 15, 20, tzinfo=TZ))
     assert u[A].online and u[A].apps == {} and t.dpi_available is False
+
+
+def test_time_estimates(tmp_path):
+    """45 min of YouTube on the iPad, 10 min of it also on the Switch; chat in the background."""
+    from family_wifi.usage import UsageTracker, human_duration
+
+    fake = FakeUnifi()
+    fake.online = {A: {"tx_bytes": 0, "rx_bytes": 0}, B: {"tx_bytes": 0, "rx_bytes": 0}}
+    yt, chat = {"cat": 4, "app": 112}, {"cat": 0, "app": 41}
+    counters = {A: {"yt": 0, "chat": 0, "dev": 0}, B: {"yt": 0, "chat": 0, "dev": 0}}
+    t = UsageTracker(_client(fake, api_key="good-key"), str(tmp_path / "usage.json"))
+    start = datetime(2026, 11, 21, 16, 0, tzinfo=TZ)
+
+    def tick(minute):
+        for mac in (A, B):
+            fake.online[mac] = {"tx_bytes": counters[mac]["dev"], "rx_bytes": 0}
+            fake.dpi[mac] = [{**yt, "rx_bytes": 0, "tx_bytes": counters[mac]["yt"]},
+                             {**chat, "rx_bytes": 0, "tx_bytes": counters[mac]["chat"]}]
+        return t.poll([A, B], start + timedelta(minutes=minute))
+
+    tick(0)
+    for minute in range(2, 92, 2):  # poll every 2 minutes for 90 minutes
+        watching_a = minute <= 45
+        watching_b = 36 <= minute <= 45
+        for mac, watching in ((A, watching_a), (B, watching_b)):
+            if watching:
+                counters[mac]["yt"] += 12_000_000  # ~100 kB/s video
+                counters[mac]["dev"] += 12_100_000
+            counters[mac]["chat"] += 20_000  # background chat sync: ~170 B/s
+            counters[mac]["dev"] += 20_000
+        u = tick(minute)
+
+    ipad, switch = u[A], u[B]
+    assert round(ipad.active_seconds / 60) == 44  # first 2 min is the starting point
+    assert dict(ipad.app_times())["Youtube"] == pytest.approx(44 * 60)
+    assert "WhatsApp" not in dict(ipad.app_times())  # background sync isn't "use"
+    alex = t.for_macs([A, B])
+    assert round(alex.active_seconds / 60) == 44  # overlap on the Switch counted once
+    assert human_duration(alex.active_seconds) == "44 min"
+    assert human_duration(3900) == "1 h 05 min"

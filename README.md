@@ -76,7 +76,8 @@ For each kid, group and device, refreshed every 2 minutes:
 | `binary_sensor.<name>_online` | Whether any of their devices is connected (attribute: which ones) |
 | `sensor.<name>_data_used_today` | Download + upload since midnight. Kept as long-term statistics, so you get daily history graphs |
 | `sensor.<name>_download_speed` / `_upload_speed` | Speed right now |
-| `sensor.<name>_top_app_today` | Most-used app today, e.g. *Youtube*. Attribute `apps` lists the top 10 with amounts |
+| `sensor.<name>_top_app_today` | Most-used app today, e.g. *Youtube*. Attributes `apps` (data) and `app_time` (time) for the top 10 |
+| `sensor.<name>_screen_time_today` | **Estimated** time in use today, in minutes. Attributes: `app_time` (*Youtube: 1 h 05 min*), `app_minutes` (numbers, for automations), `first_active`, `last_active` |
 
 Notes:
 
@@ -85,6 +86,13 @@ Notes:
   Newer apps that list doesn't know show as e.g. *Other Media Streaming*. App counting starts from when the
   integration first sees a device, then resets at midnight.
 - **Data used today** comes from UniFi's own usage reports, the same numbers as the UniFi app.
+- **Screen time is an estimate.** UniFi can't see the screen, so time counts as "in use" when traffic
+  stays above a level typical for real use. That level is about 0.2 Mbps for video, so background syncing
+  doesn't count. Time is checked in 2-minute slices and merged across a kid's devices, so watching on two
+  devices at once counts once.
+  - **Undercounts:** offline or downloaded videos, reading, and single-player offline games.
+  - **Overcounts:** a video left playing with nobody watching, and large downloads.
+  - Treat it as a good guide, not a stopwatch.
 - **Websites visited:** UniFi doesn't record which sites (domains) a device opens, so this can't show them.
   The app list is the closest UniFi gets.
 
@@ -118,6 +126,19 @@ automation:
     actions:
       - action: family_wifi.pause
         data: {target: Kids, duration: until 7am}
+
+# Daily YouTube limit: after 60 minutes, block video sites until tomorrow and tell me
+  - alias: Alex YouTube limit
+    triggers:
+      - trigger: template
+        value_template: >-
+          {{ (state_attr('sensor.alex_screen_time_today', 'app_minutes') or {}).get('Youtube', 0) >= 60 }}
+    actions:
+      - action: family_wifi.block_websites
+        data: {target: Alex, websites: Video, duration: until 7am}
+      - action: notify.notify
+        data:
+          message: "Alex reached 1 hour of YouTube today, so video sites are blocked until 7am."
 
 # A script you can run from the dashboard, Siri or an iPhone Shortcut
 script:

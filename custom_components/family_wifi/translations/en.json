@@ -129,6 +129,9 @@
       },
       "top_app": {
         "name": "Top app today"
+      },
+      "screen_time": {
+        "name": "Screen time today"
       }
     },
     "binary_sensor": {

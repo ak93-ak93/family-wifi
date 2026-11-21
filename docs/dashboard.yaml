@@ -29,17 +29,30 @@
           entity: sensor.alex_data_used_today
           name: Data today
         - type: tile
+          entity: sensor.alex_screen_time_today
+          name: Screen time
+        - type: tile
           entity: sensor.alex_download_speed
           name: Speed now
         - type: markdown
-          title: Top apps today
+          title: Apps today
           content: >-
             {% set apps = state_attr('sensor.alex_top_app_today', 'apps') or {} %}
+            {% set times = state_attr('sensor.alex_top_app_today', 'app_time') or {} %}
             {% if apps %}{% for name, amount in apps.items() %}
-            - **{{ name }}**: {{ amount }}
+            - **{{ name }}**: {{ times.get(name, '–') }} · {{ amount }}
             {% endfor %}{% elif state_attr('sensor.alex_top_app_today', 'traffic_identification') == 'off in UniFi' %}
             Turn on Traffic Identification in UniFi to see apps.
             {% else %}Nothing yet today.{% endif %}
+        - type: statistics-graph
+          title: Screen time per day (minutes)
+          entities:
+            - entity: sensor.alex_screen_time_today
+              name: Alex
+          stat_types: [change]
+          period: day
+          days_to_show: 7
+          chart_type: bar
         - type: statistics-graph
           title: Data per day
           entities:
