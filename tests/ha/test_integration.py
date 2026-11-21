@@ -25,7 +25,7 @@ async def setup(hass, options=OPTIONS):
     entry = MockConfigEntry(domain=DOMAIN, data=DATA, options=options, title="Family WiFi")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)  # first usage read runs in the background
     return entry
 
 
@@ -118,12 +118,12 @@ async def test_actions_with_timer(hass, fake_unifi):
     status = await hass.services.async_call(DOMAIN, "status", {}, blocking=True, return_response=True)
     assert "Alex" in status["message"] and "Games" in status["message"]
 
-    # Pretend 31 minutes have passed: the pause is now due, the 2-hour block isn't.
+    # The pause ends by itself 30 minutes later: Home Assistant's scheduler wakes the integration.
     hub = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
-    for r in hub.svc.state.find("pause"):
+    for r in hub.svc.state.find("pause"):  # make it really due (expire() checks the wall clock)
         r.until = (dt_util.now() - timedelta(seconds=1)).isoformat()
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=20))
-    await hass.async_block_till_done(wait_background_tasks=True)  # timers run as background tasks
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=30, seconds=2))
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert fake_unifi.blocked == set()
     assert hass.states.get("switch.alex_internet").state == "on"
     assert len(fake_unifi.rules) == 1
@@ -399,3 +399,46 @@ async def test_allowances_checked_after_each_usage_poll(hass, fake_unifi, freeze
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert check.await_count == 1
+
+
+async def test_home_assistant_friendly_defaults(hass, fake_unifi):
+    from homeassistant.const import EntityCategory
+    from homeassistant.helpers import entity_registry as er
+
+    await setup(hass)
+    reg = er.async_get(hass)
+    assert reg.async_get("select.alex_for_how_long").entity_category is EntityCategory.CONFIG
+    assert reg.async_get("number.alex_daily_screen_time").entity_category is EntityCategory.CONFIG
+    assert reg.async_get("sensor.alex_upload_speed").disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert reg.async_get("sensor.alex_ipad_download_speed").disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert reg.async_get("sensor.alex_download_speed").disabled_by is None
+    # Bulky attributes are kept out of the history database.
+    from custom_components.family_wifi.sensor import StatusSensor, TopAppSensor
+    assert "entities" in StatusSensor._unrecorded_attributes
+    assert "apps" in TopAppSensor._unrecorded_attributes
+
+
+async def test_diagnostics_redacted(hass, fake_unifi):
+    from custom_components.family_wifi.diagnostics import async_get_config_entry_diagnostics
+
+    entry = await setup(hass)
+    await hass.services.async_call(DOMAIN, "pause", {"target": "Alex", "duration": "1 hour"}, blocking=True)
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = str(diag)
+    for secret in ("p", A, B, C, "https://udm"):
+        assert f"'{secret}'" not in text
+    assert diag["entry"]["data"]["password"] == "**REDACTED**"
+    assert diag["entry"]["options"]["groups"] == {"Kids": "3 device(s)", "Alex": "2 device(s)"}
+    assert diag["restrictions"][0]["target"] == "Alex" and diag["unifi"]["auth_mode"] == "login"
+
+
+async def test_remove_deletes_saved_files(hass, fake_unifi):
+    import os
+
+    entry = await setup(hass)
+    await hass.services.async_call(DOMAIN, "pause", {"target": "Alex", "duration": "1 hour"}, blocking=True)
+    state_file = hass.config.path(".storage", f"{DOMAIN}.{entry.entry_id}.state.json")
+    assert await hass.async_add_executor_job(os.path.exists, state_file)
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not await hass.async_add_executor_job(os.path.exists, state_file)

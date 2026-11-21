@@ -13,6 +13,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 
 class OnlineSensor(UsageEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _unrecorded_attributes = frozenset({"devices_online"})
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "online")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import run_action
@@ -20,7 +21,6 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 class SpeedSelect(FamilyWifiEntity, SelectEntity):
     """Pick a speed to slow down to right away, or 'No limit' to remove the slow-down."""
 
-    _attr_icon = "mdi:speedometer"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "speed_limit")
@@ -44,7 +44,8 @@ class SpeedSelect(FamilyWifiEntity, SelectEntity):
 class DurationSelect(FamilyWifiEntity, SelectEntity, RestoreEntity):
     """How long the Internet / Slow down switches and Speed limit apply for. Remembered across restarts."""
 
-    _attr_icon = "mdi:timer-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
     _attr_options = DURATIONS
 
     def __init__(self, entry, target: str) -> None:

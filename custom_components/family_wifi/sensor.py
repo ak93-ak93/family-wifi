@@ -35,7 +35,9 @@ def _describe(r) -> dict:
 class StatusSensor(FamilyWifiEntity, SensorEntity):
     """'Normal', 'Paused', 'Slowed', 'Websites blocked' (or a combination)."""
 
-    _attr_icon = "mdi:shield-account"
+    # Static/bulky data for the dashboard card: don't store it in history every time the state changes.
+    _unrecorded_attributes = frozenset({"family_wifi_target", "is_group", "devices", "entities"})
+
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "status")
@@ -63,7 +65,8 @@ class StatusSensor(FamilyWifiEntity, SensorEntity):
 class ActiveSensor(FamilyWifiEntity, SensorEntity):
     """Number of active restrictions across the house, with a readable summary."""
 
-    _attr_icon = "mdi:router-network"
+    _unrecorded_attributes = frozenset({"summary", "site_lists", "speeds", "durations", "groups"})
+
     _attr_native_unit_of_measurement = "restrictions"
 
     def __init__(self, entry) -> None:
@@ -95,7 +98,6 @@ class DataTodaySensor(UsageEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfInformation.BYTES
     _attr_suggested_unit_of_measurement = UnitOfInformation.MEGABYTES
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:chart-donut"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "data_today")
@@ -121,7 +123,10 @@ class SpeedSensor(UsageEntity, SensorEntity):
     def __init__(self, entry, target: str, direction: str) -> None:
         super().__init__(entry, target, f"{direction}_speed")
         self.direction = direction
-        self._attr_icon = "mdi:download" if direction == "download" else "mdi:upload"
+        cfg = self.hub.cfg
+        # Changes every poll: keep only the useful ones on by default (enable others in the entity settings).
+        per_device_noise = bool(cfg.groups) and target not in cfg.groups
+        self._attr_entity_registry_enabled_default = direction == "download" and not per_device_noise
 
     @property
     def native_value(self) -> float:
@@ -132,7 +137,8 @@ class SpeedSensor(UsageEntity, SensorEntity):
 class TopAppSensor(UsageEntity, SensorEntity):
     """Most-used app today; the attributes list the top 10 with amounts."""
 
-    _attr_icon = "mdi:apps"
+    _unrecorded_attributes = frozenset({"apps", "apps_mb", "app_time", "traffic_identification"})
+
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "top_app")
@@ -168,11 +174,13 @@ class ScreenTimeSensor(UsageEntity, SensorEntity):
     Attributes give minutes per app, e.g. app_minutes: {"Youtube": 65}, for automations.
     """
 
+    _unrecorded_attributes = frozenset(
+        {"screen_time", "app_time", "app_minutes", "first_active", "last_active", "estimate"})
+
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:timer-sand"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "screen_time")
@@ -198,10 +206,11 @@ class ScreenTimeSensor(UsageEntity, SensorEntity):
 class TimeLeftSensor(UsageEntity, SensorEntity):
     """Screen time left today under the kid's daily allowance (unknown when there's no limit)."""
 
+    _unrecorded_attributes = frozenset({"daily_limit", "extra_today", "used_today", "when_reached", "apps_left"})
+
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:timer-sand-complete"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "time_left")

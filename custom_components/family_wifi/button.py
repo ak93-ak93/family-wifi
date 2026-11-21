@@ -14,7 +14,6 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 
 
 class ExtraTimeButton(FamilyWifiEntity, ButtonEntity):
-    _attr_icon = "mdi:timer-plus-outline"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "extra_time")

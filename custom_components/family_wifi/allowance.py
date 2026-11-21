@@ -11,6 +11,7 @@ Events for your own automations: family_wifi_limit_warning (10 min left) and fam
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components import persistent_notification
@@ -35,6 +36,7 @@ class Allowances:
         self.store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.allowance")
         # {"date": "YYYY-MM-DD", "bonus": {kid: minutes}, "fired": {kid: ["screen", "warn", "app:Youtube"]}}
         self.data: dict = {"date": "", "bonus": {}, "fired": {}}
+        self._lock = asyncio.Lock()  # one check or grant at a time, so a limit never fires twice
 
     async def async_load(self) -> None:
         self.data = await self.store.async_load() or self.data
@@ -84,6 +86,10 @@ class Allowances:
     # ----- checking -----
 
     async def async_check(self) -> None:
+        async with self._lock:
+            await self._check_all()
+
+    async def _check_all(self) -> None:
         self._rollover()
         changed = False
         for target in self.targets():
@@ -150,6 +156,10 @@ class Allowances:
 
     async def async_grant(self, target: str, minutes: int) -> str:
         """Add minutes to today's limits for `target` and lift limits that already kicked in."""
+        async with self._lock:
+            return await self._grant(target, minutes)
+
+    async def _grant(self, target: str, minutes: int) -> str:
         self._rollover()
         self.data["bonus"][target] = self.bonus(target) + minutes
         self.data["fired"][target] = []

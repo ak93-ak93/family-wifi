@@ -154,6 +154,44 @@ automation:
 
 Limits reset at midnight. Screen time is an estimate (see below), so pick limits with a little slack.
 
+### Built on Home Assistant features
+
+Where Home Assistant already has a feature, Family WiFi uses it instead of building its own:
+
+| Need | Uses |
+|---|---|
+| Schedules (bedtime, school hours) | The **Schedule** helper plus an automation (example below). No schedule system of our own |
+| Notifications | Events (`family_wifi_limit_*`) + your `notify` services, and HA's notification panel |
+| Settings vs controls | Entity categories: *For how long* and *Daily screen time* are configuration entities |
+| Noisy entities | Upload speed and per-device speeds start disabled; enable them in the entity settings |
+| History database | Bulky attributes (app lists, card data) are excluded from recording |
+| Timers | HA's scheduler wakes the integration exactly when a pause ends |
+| Support | **Download diagnostics** on the integration page (passwords, keys and MACs removed) |
+| Icons, names, translations | `icons.json` / `strings.json`, so icons change with state (e.g. crossed-out globe when paused) |
+| Apple Home, Google, Alexa | HomeKit Bridge or a Matter bridge add-on, not a bridge of our own |
+
+All UniFi network calls and file access run in Home Assistant's worker threads, never on its main event loop.
+The tests enforce this with *blockbuster*, the same tool Home Assistant core uses.
+
+Bedtime with the Schedule helper: **Settings → Devices & services → Helpers → Create helper → Schedule**
+(e.g. "Kids bedtime": school nights 21:00–07:00), then:
+
+```yaml
+automation:
+  - alias: Kids bedtime
+    triggers:
+      - trigger: state
+        entity_id: schedule.kids_bedtime
+    actions:
+      - if: "{{ trigger.to_state.state == 'on' }}"
+        then:
+          - action: family_wifi.pause
+            data: {target: Kids, duration: until I undo}
+        else:
+          - action: family_wifi.restore
+            data: {target: Kids, only: pause}
+```
+
 ### Usage: online, data used, top apps
 
 For each kid, group and device, refreshed every 2 minutes:

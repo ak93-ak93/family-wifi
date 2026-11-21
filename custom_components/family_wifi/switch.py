@@ -20,7 +20,6 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 class InternetSwitch(FamilyWifiEntity, SwitchEntity):
     """On = internet allowed. Turning it off pauses for the kid's 'For how long' choice."""
 
-    _attr_icon = "mdi:web"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "internet")
@@ -39,7 +38,6 @@ class InternetSwitch(FamilyWifiEntity, SwitchEntity):
 class SlowSwitch(FamilyWifiEntity, SwitchEntity):
     """On = speed limited to the kid's 'Speed limit' choice, for their 'For how long' choice."""
 
-    _attr_icon = "mdi:speedometer-slow"
 
     def __init__(self, entry, target: str) -> None:
         super().__init__(entry, target, "slow_down")

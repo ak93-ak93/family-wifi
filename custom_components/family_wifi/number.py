@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.const import UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfTime
 
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
@@ -16,7 +16,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 
 
 class DailyLimitNumber(FamilyWifiEntity, NumberEntity):
-    _attr_icon = "mdi:timer-cog-outline"
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_native_min_value = 0
     _attr_native_max_value = 720
     _attr_native_step = 15
