@@ -17,6 +17,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_API_KEY,
@@ -35,9 +37,11 @@ from .core.config import Config, SpeedPreset, UnifiConfig, normalize_mac
 from .core.service import FamilyWifi
 from .core.state import State
 from .core.unifi import UnifiClient, UnifiError
+from .core.usage import Usage, UsageTracker
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+USAGE_INTERVAL = timedelta(minutes=2)
 TICK = timedelta(seconds=15)
 
 
@@ -45,6 +49,8 @@ TICK = timedelta(seconds=15)
 class Hub:
     cfg: Config
     svc: FamilyWifi
+    usage: DataUpdateCoordinator[dict[str, Usage]]
+    tracker: UsageTracker
 
 
 type FamilyWifiConfigEntry = ConfigEntry[Hub]
@@ -108,7 +114,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: FamilyWifiConfigEntry) -
     except httpx.HTTPError as err:
         raise ConfigEntryNotReady(f"Can't reach UniFi at {cfg.unifi.url}: {err}") from err
 
-    entry.runtime_data = Hub(cfg, svc)
+    tracker = UsageTracker(svc.unifi, hass.config.path(".storage", f"{DOMAIN}.{entry.entry_id}.usage.json"))
+    macs = sorted({m for ms in cfg.devices.values() for m in ms})
+
+    async def _poll_usage() -> dict[str, Usage]:
+        try:
+            return await hass.async_add_executor_job(tracker.poll, macs, dt_util.now())
+        except (UnifiError, httpx.HTTPError) as err:
+            raise UpdateFailed(f"Couldn't read usage from UniFi: {err}") from err
+
+    usage = DataUpdateCoordinator(
+        hass, _LOGGER, config_entry=entry, name=f"{DOMAIN} usage",
+        update_method=_poll_usage, update_interval=USAGE_INTERVAL,
+    )
+    entry.runtime_data = Hub(cfg, svc, usage, tracker)
+    # Usage problems must never block the parental controls, so don't fail setup on them.
+    await usage.async_refresh()
 
     async def _tick(_now=None) -> None:
         try:

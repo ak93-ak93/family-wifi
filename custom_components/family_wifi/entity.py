@@ -5,10 +5,12 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
 from .const import DOMAIN, SIGNAL_UPDATE
 from .core.state import Restriction
+from .core.usage import Usage
 
 
 class FamilyWifiEntity(Entity):
@@ -44,3 +46,15 @@ class FamilyWifiEntity(Entity):
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_UPDATE, self.async_write_ha_state))
+
+
+class UsageEntity(CoordinatorEntity, FamilyWifiEntity):
+    """An entity fed by the usage poller (every 2 minutes)."""
+
+    def __init__(self, entry, target: str, key: str) -> None:
+        CoordinatorEntity.__init__(self, entry.runtime_data.usage)
+        FamilyWifiEntity.__init__(self, entry, target, key)
+
+    @property
+    def usage(self) -> Usage:
+        return Usage.combine([self.coordinator.data[m] for m in self.macs if m in (self.coordinator.data or {})])

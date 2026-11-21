@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SHARED = ["config.py", "durations.py", "service.py", "state.py", "unifi.py"]
+SHARED = ["config.py", "dpi_names.py", "durations.py", "service.py", "state.py", "unifi.py", "usage.py"]
 
 for name in SHARED:
     shutil.copyfile(ROOT / "family_wifi" / name, ROOT / "custom_components/family_wifi/core" / name)

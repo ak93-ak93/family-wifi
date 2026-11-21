@@ -43,6 +43,10 @@ type **Integration** → find **Family WiFi** → Download → restart Home Assi
 **Manual:** copy `custom_components/family_wifi` into your Home Assistant `config/custom_components/` folder
 and restart.
 
+**Updates:** each new version is published as a GitHub release. HACS picks it up and it appears in
+Home Assistant under **Settings → Updates** with release notes, where you install it with one click.
+Restart Home Assistant afterwards.
+
 Then: **Settings → Devices & services → Add integration → Family WiFi**, and enter your console address plus an API key
 and/or a local UniFi account (see [step 1](#1-prepare-unifi)).
 
@@ -66,6 +70,39 @@ For each kid, group and device:
 | `sensor.<name>_status` | `Normal`, `Paused`, `Slowed`, `Websites blocked`; attributes list each restriction and when it ends |
 
 Plus `sensor.family_wifi_active_restrictions` (count, with a readable `summary` attribute).
+
+### Usage: online, data used, top apps
+
+For each kid, group and device, refreshed every 2 minutes:
+
+| Entity | Shows |
+|---|---|
+| `binary_sensor.<name>_online` | Whether any of their devices is connected (attribute: which ones) |
+| `sensor.<name>_data_used_today` | Download + upload since midnight. Kept as long-term statistics, so you get daily history graphs |
+| `sensor.<name>_download_speed` / `_upload_speed` | Speed right now |
+| `sensor.<name>_top_app_today` | Most-used app today, e.g. *Youtube*. Attributes `apps` (data) and `app_time` (time) for the top 10 |
+| `sensor.<name>_screen_time_today` | **Estimated** time in use today, in minutes. Attributes: `app_time` (*Youtube: 1 h 05 min*), `app_minutes` (numbers, for automations), `first_active`, `last_active` |
+
+Notes:
+
+- **Top apps** need **Traffic Identification** turned on in UniFi (Settings → Traffic Management / Security,
+  depending on version). App names come from [unpoller](https://github.com/unpoller/unifi) (MIT).
+  Newer apps that list doesn't know show as e.g. *Other Media Streaming*. App counting starts from when the
+  integration first sees a device, then resets at midnight.
+- **Data used today** comes from UniFi's own usage reports, the same numbers as the UniFi app.
+- **Screen time is an estimate.** UniFi can't see the screen, so time counts as "in use" when traffic
+  stays above a level typical for real use. That level is about 0.2 Mbps for video, so background syncing
+  doesn't count. Time is checked in 2-minute slices and merged across a kid's devices, so watching on two
+  devices at once counts once.
+  - **Undercounts:** offline or downloaded videos, reading, and single-player offline games.
+  - **Overcounts:** a video left playing with nobody watching, and large downloads.
+  - Treat it as a good guide, not a stopwatch.
+- **Websites visited:** UniFi doesn't record which sites (domains) a device opens, so this can't show them.
+  The app list is the closest UniFi gets.
+
+**Dashboard:** [`docs/dashboard.yaml`](docs/dashboard.yaml) is a ready-made view with pause/slow-down buttons,
+data today, speed, top apps, a 7-day data chart and an online timeline per kid. Paste it in the raw
+configuration editor and replace `alex` with each kid's name.
 
 ### Actions (with timers)
 
@@ -93,6 +130,19 @@ automation:
     actions:
       - action: family_wifi.pause
         data: {target: Kids, duration: until 7am}
+
+# Daily YouTube limit: after 60 minutes, block video sites until tomorrow and tell me
+  - alias: Alex YouTube limit
+    triggers:
+      - trigger: template
+        value_template: >-
+          {{ (state_attr('sensor.alex_screen_time_today', 'app_minutes') or {}).get('Youtube', 0) >= 60 }}
+    actions:
+      - action: family_wifi.block_websites
+        data: {target: Alex, websites: Video, duration: until 7am}
+      - action: notify.notify
+        data:
+          message: "Alex reached 1 hour of YouTube today, so video sites are blocked until 7am."
 
 # A script you can run from the dashboard, Siri or an iPhone Shortcut
 script:
@@ -178,6 +228,9 @@ All good.
 ```
 
 The output above is an illustration, not from a real console.
+
+Add `--usage` to also see who's online, data used today and top apps (checks the Home Assistant usage sensors
+will work).
 
 Then try a real pause on one device. It pauses for 60 seconds and restores it, even if you press Ctrl-C:
 
@@ -286,6 +339,9 @@ Tests run against a fake UniFi console (`tests/fake_unifi.py`), so no hardware i
 The UniFi logic lives in `family_wifi/` and is copied into `custom_components/family_wifi/core/`
 (Home Assistant integrations must be self-contained). After changing it, run `python scripts/sync_core.py`;
 a test fails if the copies differ.
+
+**Releasing:** bump `version` in `custom_components/family_wifi/manifest.json` and merge to `main`.
+The Release workflow publishes `v<version>` automatically.
 
 ## Compatibility notes
 
