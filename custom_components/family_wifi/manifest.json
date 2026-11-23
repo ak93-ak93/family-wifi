@@ -6,8 +6,7 @@
     "http"
   ],
   "categories": [
-    "computers_network.routers_network",
-    "presence_location.network_presence"
+    "computers_network.monitoring"
   ],
   "codeowners": [
     "@ak93-ak93"
