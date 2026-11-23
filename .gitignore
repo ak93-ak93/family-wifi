@@ -1,7 +1,3 @@
-config.yaml
-state.json
-state.tmp
-data/
 __pycache__/
 .pytest_cache/
 .venv/

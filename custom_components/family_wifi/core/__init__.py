@@ -1,1 +1,4 @@
-"""Shared UniFi logic, copied from family_wifi/ by scripts/sync_core.py. Don't edit here."""
+"""UniFi logic: talking to the console, restrictions with timers, usage and screen time.
+
+Plain Python with no Home Assistant imports; the integration runs it in worker threads.
+"""

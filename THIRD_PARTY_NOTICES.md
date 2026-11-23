@@ -1,7 +1,7 @@
 # Third-party notices
 
-`family_wifi/dpi_names.py` and `custom_components/family_wifi/core/dpi_names.py` (UniFi traffic
-identification app and category names) are generated from
+`custom_components/family_wifi/core/dpi_names.py` (UniFi traffic identification app and category
+names) is generated from
 [unpoller/unifi](https://github.com/unpoller/unifi) `dpi.go`.
 
 MIT License

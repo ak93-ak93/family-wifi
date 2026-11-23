@@ -1,12 +1,8 @@
-"""Load and validate config.yaml."""
+"""Who and what Family WiFi controls: UniFi connection, kids/groups/devices, website lists, speeds."""
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
-from pathlib import Path
-
-import yaml
 
 
 @dataclass
@@ -34,7 +30,6 @@ class SpeedPreset:
 @dataclass
 class Config:
     unifi: UnifiConfig
-    api_token: str
     timezone: str = "America/Los_Angeles"
     # person/device name -> list of MAC addresses
     devices: dict[str, list[str]] = field(default_factory=dict)
@@ -46,7 +41,7 @@ class Config:
     state_file: str = "state.json"
 
     def targets(self) -> list[str]:
-        """Names a Shortcut can pick from: groups first, then devices."""
+        """Every kid/group, then every device: groups first."""
         return list(self.groups) + [d for d in self.devices if d not in self.groups]
 
     def canonical(self, target: str) -> str:
@@ -104,39 +99,3 @@ def normalize_mac(mac: str) -> str:
     if len(mac) == 12 and ":" not in mac:
         mac = ":".join(mac[i : i + 2] for i in range(0, 12, 2))
     return mac
-
-
-def load_config(path: str | os.PathLike | None = None) -> Config:
-    path = Path(path or os.environ.get("FAMILY_WIFI_CONFIG", "config.yaml"))
-    raw = yaml.safe_load(path.read_text()) or {}
-    u = raw.get("unifi") or {}
-    unifi = UnifiConfig(
-        url=os.environ.get("UNIFI_URL", u.get("url", "")).rstrip("/"),
-        username=os.environ.get("UNIFI_USERNAME", u.get("username", "")),
-        password=os.environ.get("UNIFI_PASSWORD", u.get("password", "")),
-        site=u.get("site", "default"),
-        verify_ssl=bool(u.get("verify_ssl", False)),
-        api_key=os.environ.get("UNIFI_API_KEY", u.get("api_key", "") or ""),
-    )
-    token = os.environ.get("FAMILY_WIFI_TOKEN", raw.get("api_token", ""))
-    if not unifi.url:
-        raise ValueError("unifi.url is required")
-    if not unifi.api_key and not unifi.has_login:
-        raise ValueError("Set unifi.api_key, or unifi.username and unifi.password (or both)")
-    if not token or token == "change-me":
-        raise ValueError("Set api_token in config.yaml (or FAMILY_WIFI_TOKEN) to a long random string")
-    speeds = [
-        SpeedPreset(name=s["name"], down_kbps=int(s["down_kbps"]), up_kbps=int(s.get("up_kbps", s["down_kbps"])))
-        for s in raw.get("speeds") or []
-    ] or [SpeedPreset("Slow (1 Mbps)", 1000, 500)]
-    devices = {name: ([m] if isinstance(m, str) else list(m)) for name, m in (raw.get("devices") or {}).items()}
-    return Config(
-        unifi=unifi,
-        api_token=token,
-        timezone=raw.get("timezone", "America/Los_Angeles"),
-        devices=devices,
-        groups={k: list(v) for k, v in (raw.get("groups") or {}).items()},
-        site_lists={k: [d.lower() for d in v] for k, v in (raw.get("site_lists") or {}).items()},
-        speeds=speeds,
-        state_file=raw.get("state_file", os.environ.get("FAMILY_WIFI_STATE", "state.json")),
-    )

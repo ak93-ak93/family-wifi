@@ -1,16 +1,16 @@
+"""Tests for the UniFi logic in custom_components/family_wifi/core, against a fake console."""
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
-from family_wifi.app import create_app
-from family_wifi.config import Config, SpeedPreset, UnifiConfig
-from family_wifi.durations import parse_until
-from family_wifi.service import FamilyWifi
-from family_wifi.state import State
-from family_wifi.unifi import UnifiClient, UnifiError
+from custom_components.family_wifi.core.config import Config, SpeedPreset, UnifiConfig
+from custom_components.family_wifi.core.durations import parse_until
+from custom_components.family_wifi.core.service import FamilyWifi
+from custom_components.family_wifi.core.state import State
+from custom_components.family_wifi.core.unifi import UnifiClient, UnifiError
 
 TZ = ZoneInfo("America/Los_Angeles")
 from tests.fake_unifi import A, B, C, FakeUnifi
@@ -20,7 +20,6 @@ from tests.fake_unifi import A, B, C, FakeUnifi
 def env(tmp_path):
     cfg = Config(
         unifi=UnifiConfig(url="https://udm", username="u", password="p"),
-        api_token="secret",
         timezone="America/Los_Angeles",
         devices={"Alex iPad": [A], "Alex Switch": [B], "Sam iPhone": [C]},
         groups={"Kids": ["Alex iPad", "Alex Switch", "Sam iPhone"], "Alex": ["Alex iPad", "Alex Switch"]},
@@ -113,34 +112,6 @@ def test_durations():
         parse_until("whenever", now)
 
 
-def test_http_api(env):
-    cfg, fake, svc = env
-    client = TestClient(create_app(cfg, svc))
-    assert client.get("/menu").status_code == 401
-    h = {"Authorization": "Bearer secret"}
-    menu = client.get("/menu", headers=h).json()
-    assert menu["targets"][:2] == ["Kids", "Alex"]
-    r = client.post("/do", headers=h, json={"action": "⏸️ Pause internet", "target": "Kids", "duration": "15 min"})
-    assert r.status_code == 200 and "Paused" in r.json()["message"]
-    assert "Kids" in client.get("/status", headers=h).json()["message"]
-    r = client.post("/do", headers=h, json={"action": "pause", "target": "Nobody", "duration": "15 min"})
-    assert r.status_code == 400 and "Unknown device" in r.json()["detail"]
-    assert "Family WiFi" in client.get("/").text
-
-
-def test_home_assistant_copy_is_in_sync():
-    """custom_components/family_wifi/core must match family_wifi/ (run scripts/sync_core.py)."""
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parent.parent
-    from scripts.sync_core import SHARED
-
-    for name in SHARED:
-        assert (root / "family_wifi" / name).read_text() == (
-            root / "custom_components/family_wifi/core" / name
-        ).read_text(), f"{name} differs: run python scripts/sync_core.py"
-
-
 def _client(fake, **kw):
     cfg = UnifiConfig(url="https://udm", **kw)
     return UnifiClient(cfg, transport=httpx.MockTransport(fake))
@@ -172,32 +143,8 @@ def test_api_key_rejected_without_password_explains():
         c.block_client(A)
 
 
-def test_check_command(tmp_path, capsys, monkeypatch):
-    from family_wifi import check, unifi
-
-    fake = FakeUnifi()
-    original = unifi.UnifiClient.__init__
-    monkeypatch.setattr(unifi.UnifiClient, "__init__",
-                        lambda self, cfg, transport=None: original(self, cfg, httpx.MockTransport(fake)))
-    monkeypatch.setattr(check.time, "sleep", lambda s: None)
-    cfgfile = tmp_path / "config.yaml"
-    cfgfile.write_text(f"""
-unifi: {{url: "https://udm", api_key: good-key}}
-api_token: t0ken
-devices: {{Alex iPad: "{A}", Old Phone: "02:11:22:33:44:55"}}
-""")
-    fake.dpi[A] = [{"cat": 4, "app": 112, "rx_bytes": 0, "tx_bytes": 9_000_000}]
-    assert check.main(["--config", str(cfgfile), "--usage", "--try-pause", "alex ipad", "--seconds", "1"]) == 0
-    out = capsys.readouterr().out
-    assert "API key" in out and "All good" in out
-    assert "never seen: Old Phone" in out
-    assert "Alex iPad: online, today 0 B" in out and "top apps (all time) Youtube" in out
-    assert "good-key" not in out
-    assert fake.blocked == set()  # restored after the trial pause
-
-
 def test_usage_tracker(tmp_path):
-    from family_wifi.usage import UsageTracker, human_bytes
+    from custom_components.family_wifi.core.usage import UsageTracker, human_bytes
 
     fake = FakeUnifi()
     now = datetime(2026, 11, 21, 15, 20, tzinfo=TZ)
@@ -229,7 +176,7 @@ def test_usage_tracker(tmp_path):
 
 
 def test_usage_without_dpi_or_reports(tmp_path):
-    from family_wifi.usage import UsageTracker
+    from custom_components.family_wifi.core.usage import UsageTracker
 
     fake = FakeUnifi()
     fake.dpi_enabled = False
@@ -240,7 +187,7 @@ def test_usage_without_dpi_or_reports(tmp_path):
 
 def test_time_estimates(tmp_path):
     """45 min of YouTube on the iPad, 10 min of it also on the Switch; chat in the background."""
-    from family_wifi.usage import UsageTracker, human_duration
+    from custom_components.family_wifi.core.usage import UsageTracker, human_duration
 
     fake = FakeUnifi()
     fake.online = {A: {"tx_bytes": 0, "rx_bytes": 0}, B: {"tx_bytes": 0, "rx_bytes": 0}}
