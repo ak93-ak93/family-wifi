@@ -100,7 +100,6 @@ def build_config(hass: HomeAssistant, entry: ConfigEntry) -> Config:
 
     return Config(
         unifi=unifi_config(entry.data),
-        api_token="unused-in-home-assistant",
         timezone=str(hass.config.time_zone),
         devices=devices,
         groups={g: [by_mac[m] for m in macs] for g, macs in groups.items()},

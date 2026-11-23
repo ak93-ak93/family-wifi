@@ -1,4 +1,4 @@
-"""Regenerate family_wifi/dpi_names.py from unpoller's DPI tables (MIT licensed).
+"""Regenerate custom_components/family_wifi/core/dpi_names.py from unpoller's DPI tables (MIT licensed).
 
     python scripts/update_dpi_names.py [path-or-url-to-dpi.go]
 """
@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 SRC = "https://raw.githubusercontent.com/unpoller/unifi/master/dpi.go"
-OUT = Path(__file__).resolve().parent.parent / "family_wifi" / "dpi_names.py"
+OUT = Path(__file__).resolve().parent.parent / "custom_components" / "family_wifi" / "core" / "dpi_names.py"
 
 
 def parse(go: str, var: str) -> dict[int, str]:

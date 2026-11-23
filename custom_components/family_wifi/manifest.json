@@ -5,6 +5,9 @@
     "frontend",
     "http"
   ],
+  "categories": [
+    "computers_network.monitoring"
+  ],
   "codeowners": [
     "@ak93-ak93"
   ],
