@@ -5,6 +5,10 @@
     "frontend",
     "http"
   ],
+  "categories": [
+    "computers_network.routers_network",
+    "presence_location.network_presence"
+  ],
   "codeowners": [
     "@ak93-ak93"
   ],
